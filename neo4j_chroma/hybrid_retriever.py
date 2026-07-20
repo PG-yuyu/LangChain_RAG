@@ -57,6 +57,11 @@ class HybridRetriever:
             neo4j_ok = self.database_repository.health_check()
         return vector_ok and neo4j_ok
 
+    def close(self) -> None:
+        self.vector_store.close()
+        if self.database_repository is not None:
+            self.database_repository.close()
+
     def retrieve(
         self,
         query: str,

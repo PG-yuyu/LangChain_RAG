@@ -108,6 +108,8 @@ set NEO4J_CHROMA_RUN_INTEGRATION=1
 python -m unittest tests.test_neo4j_chroma_integration
 ```
 
+开启后会执行真实 Neo4j / Chroma health check，以及写入测试文档、检索父子 chunk、校验 source、删除并确认清理完成的 smoke test。
+
 ## 初始化 Neo4j
 
 ```bash

@@ -143,6 +143,9 @@ class DatabaseRepository:
             return 0
         return int(rows[0].get("deleted_count") or 0)
 
+    def close(self) -> None:
+        self.neo4j_client.close()
+
     @staticmethod
     def _coerce_document(
         document: DocumentNode | Mapping[str, Any],

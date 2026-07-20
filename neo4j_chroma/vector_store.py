@@ -143,6 +143,9 @@ class VectorStore:
         self.chroma_client.parent_collection.delete(where=where)
         self.chroma_client.child_collection.delete(where=where)
 
+    def close(self) -> None:
+        self.chroma_client.close()
+
     @staticmethod
     def _coerce_parent_chunk(chunk: ParentChunkNode | Mapping[str, Any]) -> ParentChunkNode:
         if isinstance(chunk, ParentChunkNode):
