@@ -6,6 +6,7 @@ import tempfile
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
+from fastapi.responses import StreamingResponse
 
 from api.dependencies import get_backend_service
 from api.schemas import (
@@ -174,6 +175,40 @@ def answer_query(
         session_id=response.session_id,
         trace_id=response.trace_id,
     )
+
+
+@router.post(
+    "/query/stream",
+    responses={400: {"model": ErrorResponse}, 500: {"model": ErrorResponse}},
+)
+async def answer_query_stream(
+    body: QueryRequestModel,
+    backend=Depends(get_backend_service),
+):
+    """流式问答接口：检索完成后逐段返回 LLM 生成的内容（SSE 格式）。"""
+    request = QueryRequest(
+        query=body.query,
+        session_id=body.session_id,
+        knowledge_base_id=body.knowledge_base_id,
+        selected_document_ids=body.selected_document_ids,
+        top_k=body.top_k,
+        max_hops=body.max_hops,
+        enable_query_rewrite=body.enable_query_rewrite,
+        trace_id=body.trace_id,
+    )
+
+    import json
+
+    async def event_stream():
+        try:
+            for delta in backend.answer_stream(request):
+                yield f"data: {json.dumps({'type': 'delta', 'content': delta}, ensure_ascii=False)}\n\n"
+        except ServiceError as e:
+            yield f"data: {json.dumps({'type': 'error', 'message': e.message}, ensure_ascii=False)}\n\n"
+        except Exception as e:
+            yield f"data: {json.dumps({'type': 'error', 'message': str(e)}, ensure_ascii=False)}\n\n"
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
 
 
 @router.get(

@@ -15,7 +15,7 @@ export async function uploadDocument(file, knowledgeBaseId = 'kb_demo') {
   formData.append('file', file)
   formData.append('knowledge_base_id', knowledgeBaseId)
 
-  const response = await fetch(`${API_BASE}/api/documents/upload`, {
+  const response = await fetch(`${API_BASE}/api/documents/ingest`, {
     method: 'POST',
     body: formData
   })
@@ -23,7 +23,7 @@ export async function uploadDocument(file, knowledgeBaseId = 'kb_demo') {
 }
 
 export async function askQuestion(payload) {
-  const response = await fetch(`${API_BASE}/api/answer`, {
+  const response = await fetch(`${API_BASE}/api/query`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json'
@@ -34,7 +34,7 @@ export async function askQuestion(payload) {
 }
 
 export async function streamQuestion(payload, onDelta) {
-  const response = await fetch(`${API_BASE}/api/answer/stream`, {
+  const response = await fetch(`${API_BASE}/api/query/stream`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json'
