@@ -1,6 +1,6 @@
 <script setup>
 import { computed, nextTick, onMounted, reactive, ref } from 'vue'
-import { healthCheck, listDocuments, streamQuestion, uploadDocument } from './api'
+import { deleteDocument, healthCheck, listDocuments, streamQuestion, uploadDocument } from './api'
 
 const knowledgeBaseId = 'kb_demo'
 const sessionId = `session_${Math.random().toString(16).slice(2, 14)}`
@@ -97,6 +97,18 @@ function toggleAllDocuments() {
     selectedDocumentIds.value = []
   } else {
     selectedDocumentIds.value = documents.value.map((doc) => doc.document_id)
+  }
+}
+
+async function removeDocument(documentId) {
+  const document = documents.value.find((item) => item.document_id === documentId)
+  try {
+    await deleteDocument(documentId, knowledgeBaseId)
+    documents.value = documents.value.filter((item) => item.document_id !== documentId)
+    selectedDocumentIds.value = selectedDocumentIds.value.filter((id) => id !== documentId)
+    uploadStatus.value = document ? `已删除文件：${document.filename}` : '文件已删除。'
+  } catch (error) {
+    uploadStatus.value = `删除失败：${error.message}`
   }
 }
 
@@ -379,6 +391,29 @@ function openConversation(conversationId) {
   messages.value = conversation.messages.map((item) => ({ ...item }))
 }
 
+function removeConversation(conversationId) {
+  const nextConversations = conversations.value.filter((item) => item.id !== conversationId)
+  conversations.value = nextConversations
+
+  if (activeConversationId.value === conversationId) {
+    if (nextConversations.length) {
+      openConversation(nextConversations[0].id)
+    } else {
+      const conversation = {
+        id: `conv_${Date.now()}`,
+        title: '新建对话',
+        updatedAt: new Date().toLocaleString(),
+        messages: defaultMessages()
+      }
+      conversations.value = [conversation]
+      activeConversationId.value = conversation.id
+      messages.value = conversation.messages.map((item) => ({ ...item }))
+    }
+  }
+
+  persistConversations()
+}
+
 function saveActiveConversation(latestQuestion = '') {
   if (!activeConversationId.value) {
     newConversation()
@@ -452,16 +487,25 @@ function saveActiveConversation(latestQuestion = '') {
           <div class="dashed-box history-box">
             <div class="history-title">对话历史</div>
             <div class="history-list">
-              <button
+              <div
                 v-for="conversation in conversations"
                 :key="conversation.id"
                 class="history-item"
                 :class="{ active: activeConversationId === conversation.id }"
-                @click="openConversation(conversation.id)"
               >
-                <strong>{{ conversation.title }}</strong>
-                <span>{{ conversation.updatedAt }}</span>
-              </button>
+                <button class="history-open" @click="openConversation(conversation.id)">
+                  <strong>{{ conversation.title }}</strong>
+                  <span>{{ conversation.updatedAt }}</span>
+                </button>
+                <button
+                  class="delete-btn"
+                  title="删除对话"
+                  aria-label="删除对话"
+                  @click.stop="removeConversation(conversation.id)"
+                >
+                  ×
+                </button>
+              </div>
             </div>
           </div>
 
@@ -485,18 +529,30 @@ function saveActiveConversation(latestQuestion = '') {
                   <strong>所有文件</strong>
                 </span>
               </button>
-              <button
+              <div
                 v-for="doc in documents"
                 :key="doc.document_id"
                 class="file-item"
                 :class="{ active: selectedDocumentIds.includes(doc.document_id) }"
-                @click="toggleDocument(doc.document_id)"
               >
-                <span class="checkbox" :class="{ checked: selectedDocumentIds.includes(doc.document_id) }"></span>
-            <span class="file-meta">
-              <strong>{{ doc.filename }}</strong>
-            </span>
-          </button>
+                <span
+                  class="file-select"
+                  @click="toggleDocument(doc.document_id)"
+                >
+                  <span class="checkbox" :class="{ checked: selectedDocumentIds.includes(doc.document_id) }"></span>
+                  <span class="file-meta">
+                    <strong>{{ doc.filename }}</strong>
+                  </span>
+                </span>
+                <button
+                  class="delete-btn"
+                  title="删除文件"
+                  aria-label="删除文件"
+                  @click.stop="removeDocument(doc.document_id)"
+                >
+                  ×
+                </button>
+              </div>
             </div>
           </div>
         </div>

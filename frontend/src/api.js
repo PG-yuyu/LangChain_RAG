@@ -22,6 +22,16 @@ export async function uploadDocument(file, knowledgeBaseId = 'kb_demo') {
   return readJson(response)
 }
 
+export async function deleteDocument(documentId, knowledgeBaseId = 'kb_demo') {
+  const response = await fetch(
+    `${API_BASE}/api/documents/${encodeURIComponent(documentId)}?knowledge_base_id=${encodeURIComponent(knowledgeBaseId)}`,
+    {
+      method: 'DELETE'
+    }
+  )
+  return readJson(response)
+}
+
 export async function askQuestion(payload) {
   const response = await fetch(`${API_BASE}/api/query`, {
     method: 'POST',
