@@ -19,5 +19,9 @@ fastapi>=0.100.0
 uvicorn[standard]>=0.23.0
 python-multipart>=0.0.6
 
+# --- 数据库与向量检索 ---
+neo4j>=5.20.0
+chromadb>=1.0.12
+
 # --- 可选依赖（v2 增强） ---
 # jieba>=0.42.1        # 中文分词（用于重排优化）
