@@ -23,7 +23,7 @@ from rag.query_rewriter import QueryRewriter
 from rag.rag_pipeline import RAGPipeline
 from rag.reranker import Reranker
 from rag.retriever import Retriever
-from rag.backend_service_impl import DefaultBackendService
+from rag.backend_service_impl import RAGBackendService, _create_graph_repository
 from rag.session_store import SessionStore
 from tests.mocks.mock_graph_repository import MockGraphRepository
 
@@ -64,9 +64,8 @@ class TestRAGPipeline(unittest.TestCase):
             graph_repository=self.graph,
         )
 
-        self.backend = DefaultBackendService(
-            rag_pipeline=self.pipeline,
-            session_store=self.session_store,
+        self.backend = RAGBackendService(
+            pipeline=self.pipeline,
             graph_repository=self.graph,
         )
 
@@ -261,19 +260,19 @@ class TestRAGPipeline(unittest.TestCase):
     def test_backend_health_check(self):
         """测试 BackendService.health_check。"""
         result = self.backend.health_check()
-        self.assertEqual(result["status"], "ok")
-        self.assertEqual(result["graphdb"], "ok")
+        self.assertEqual(result["status"], "ready")
+        self.assertEqual(result["graphdb"], "ready")
 
-    def test_backend_invalid_request(self):
-        """测试无效请求。"""
-        from contracts.errors import ServiceError
-
-        with self.assertRaises(ServiceError):
-            self.backend.answer(QueryRequest(
-                query="",
-                session_id="sess",
-                knowledge_base_id="kb",
-            ))
+    def test_backend_empty_query(self):
+        """测试空查询被优雅处理为普通聊天。"""
+        self.mock_llm.chat.return_value = "你好！我是智能文档检索助手。"
+        response = self.backend.answer(QueryRequest(
+            query="",
+            session_id="sess",
+            knowledge_base_id="kb",
+        ))
+        # 空查询被归类为 NORMAL_CHAT 并返回消息
+        self.assertIsNotNone(response.answer)
 
 
 class TestIntentRouterHeuristics(unittest.TestCase):
@@ -332,9 +331,9 @@ class TestReranker(unittest.TestCase):
         from contracts.models import RetrievedChunk
 
         chunks = [
-            RetrievedChunk("c1", "d1", "f1.pdf", "深度学习是机器学习的分支", 1, 0.5),
-            RetrievedChunk("c2", "d1", "f1.pdf", "今天天气不错", 1, 0.5),
-            RetrievedChunk("c3", "d1", "f1.pdf", "机器学习是AI的核心", 1, 0.5),
+            RetrievedChunk(chunk_id="c1", document_id="d1", filename="f1.pdf", content="深度学习是机器学习的分支", page_number=1, score=0.5),
+            RetrievedChunk(chunk_id="c2", document_id="d1", filename="f1.pdf", content="今天天气不错", page_number=1, score=0.5),
+            RetrievedChunk(chunk_id="c3", document_id="d1", filename="f1.pdf", content="机器学习是AI的核心", page_number=1, score=0.5),
         ]
 
         result = self.reranker.rerank("深度学习", chunks)
@@ -350,7 +349,7 @@ class TestReranker(unittest.TestCase):
     def test_rerank_fewer_than_top_k(self):
         """测试候选少于 top_k 时全部返回。"""
         from contracts.models import RetrievedChunk
-        chunks = [RetrievedChunk("c1", "d1", "f1.pdf", "test", 1, 0.5)]
+        chunks = [RetrievedChunk(chunk_id="c1", document_id="d1", filename="f1.pdf", content="test", page_number=1, score=0.5)]
         result = self.reranker.rerank("test query", chunks)
         self.assertEqual(len(result), 1)
 

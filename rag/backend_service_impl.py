@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import uuid
 from pathlib import Path
 
@@ -24,22 +25,47 @@ from rag.reranker import Reranker
 from rag.retriever import Retriever
 from rag.session_store import SessionStore
 
+logger = logging.getLogger("rag.backend_service")
+
+
+def _create_graph_repository():
+    """Try to create a real Neo4j+Chroma repository; fall back to mock."""
+    try:
+        from neo4j_chroma.graph_repository_adapter import Neo4jChromaGraphRepository
+
+        repo = Neo4jChromaGraphRepository.from_env(initialise_schema=True)
+        if repo.health_check():
+            logger.info("Using Neo4j+Chroma GraphRepository (real backend).")
+            return repo
+        else:
+            logger.warning("Neo4j/Chroma health check failed, falling back to MockGraphRepository.")
+    except ImportError as exc:
+        logger.warning(
+            "Neo4j/Chroma modules not available (%s), falling back to MockGraphRepository.",
+            exc,
+        )
+    except Exception as exc:
+        logger.warning(
+            "Failed to initialise Neo4j/Chroma (%s), falling back to MockGraphRepository.",
+            exc,
+        )
+    return MockGraphRepository()
+
 
 class RAGBackendService:
-    def __init__(self, pipeline: RAGPipeline, graph_repository: MockGraphRepository) -> None:
+    def __init__(self, pipeline: RAGPipeline, graph_repository) -> None:
         self.pipeline = pipeline
         self.graph_repository = graph_repository
 
     def health_check(self) -> dict:
         graph_status = "ready" if self.graph_repository.health_check() else "unavailable"
+        backend_type = type(self.graph_repository).__name__
         return {
             "status": "ready",
-            "message": "RAG Backend 已启动，当前使用 Mock GraphDB 存储。",
-            "details": {
-                "llm": "deepseek-chat",
-                "graphdb": graph_status,
-                "storage": "mock-memory",
-            },
+            "service": "智能文档检索助手 API",
+            "version": "0.1.0",
+            "graphdb": graph_status,
+            "storage_backend": backend_type,
         }
 
     def ingest_document(self, file_path: str, knowledge_base_id: str) -> DocumentSummary:
@@ -64,7 +90,7 @@ class RAGBackendService:
 def create_backend_service() -> RAGBackendService:
     llm_client = LLMClient()
     session_store = SessionStore()
-    graph_repository = MockGraphRepository()
+    graph_repository = _create_graph_repository()
     retriever = Retriever(graph_repository)
 
     pipeline = RAGPipeline(
@@ -88,7 +114,10 @@ class MockBackendService:
     def health_check(self) -> dict:
         return {
             "status": "mock-ready",
-            "message": "FastAPI Mock Backend 已启动，可用于前端联调。",
+            "service": "智能文档检索助手 API (Mock)",
+            "version": "0.1.0",
+            "graphdb": "mock",
+            "storage_backend": "MockBackendService",
         }
 
     def ingest_document(self, file_path: str, knowledge_base_id: str) -> DocumentSummary:
