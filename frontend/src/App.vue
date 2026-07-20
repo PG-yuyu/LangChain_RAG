@@ -1,6 +1,6 @@
 <script setup>
-import { computed, onMounted, ref } from 'vue'
-import { askQuestion, healthCheck, listDocuments, uploadDocument } from './api'
+import { computed, nextTick, onMounted, reactive, ref } from 'vue'
+import { healthCheck, listDocuments, streamQuestion, uploadDocument } from './api'
 
 const knowledgeBaseId = 'kb_demo'
 const sessionId = `session_${Math.random().toString(16).slice(2, 14)}`
@@ -26,6 +26,7 @@ const messages = ref([
     content: '上传并选择左侧文件后，在底部输入问题开始检索问答。'
   }
 ])
+const chatAreaEl = ref(null)
 const conversations = ref([])
 const activeConversationId = ref('')
 
@@ -104,33 +105,176 @@ async function sendQuestion() {
   if (!text || isAsking.value) return
 
   messages.value.push({ role: 'user', content: text })
+  const assistantMessage = reactive({ role: 'assistant', content: '', isStreaming: true })
+  const streamDisplay = createSmoothStream(assistantMessage)
+  messages.value.push(assistantMessage)
   question.value = ''
   isAsking.value = true
+  await nextTick()
+  scrollMessagesToBottom()
 
   try {
-    const response = await askQuestion({
-      query: text,
-      session_id: sessionId,
-      knowledge_base_id: knowledgeBaseId,
-      selected_document_ids: selectedDocumentIds.value,
-      top_k: 5,
-      max_hops: 2,
-      enable_query_rewrite: true
-    })
-    messages.value.push({
-      role: 'assistant',
-      content: response.answer
-    })
+    await streamQuestion(
+      {
+        query: text,
+        session_id: sessionId,
+        knowledge_base_id: knowledgeBaseId,
+        selected_document_ids: selectedDocumentIds.value,
+        top_k: 5,
+        max_hops: 2,
+        enable_query_rewrite: true
+      },
+      (delta) => streamDisplay.enqueue(delta)
+    )
+    await streamDisplay.finish()
+    assistantMessage.isStreaming = false
     saveActiveConversation(text)
   } catch (error) {
-    messages.value.push({
-      role: 'assistant',
-      content: `请求失败：${error.message}`
-    })
+    await streamDisplay.finish()
+    assistantMessage.content = `请求失败：${error.message}`
+    assistantMessage.isStreaming = false
     saveActiveConversation(text)
   } finally {
     isAsking.value = false
+    await nextTick()
+    scrollMessagesToBottom()
   }
+}
+
+function createSmoothStream(message) {
+  let queue = ''
+  let timer = null
+  let resolveFinish = null
+  let finishing = false
+
+  const pump = async () => {
+    if (!queue) {
+      timer = null
+      if (finishing && resolveFinish) {
+        resolveFinish()
+        resolveFinish = null
+      }
+      return
+    }
+
+    const step = Math.min(Math.max(Math.ceil(queue.length / 18), 1), 4)
+    message.content += queue.slice(0, step)
+    queue = queue.slice(step)
+    await nextTick()
+    scrollMessagesToBottom()
+    timer = window.setTimeout(pump, 16)
+  }
+
+  return {
+    enqueue(text) {
+      queue += text
+      if (!timer) {
+        pump()
+      }
+    },
+    finish() {
+      finishing = true
+      if (!queue && !timer) {
+        return Promise.resolve()
+      }
+      return new Promise((resolve) => {
+        resolveFinish = resolve
+      })
+    }
+  }
+}
+
+function scrollMessagesToBottom() {
+  const element = chatAreaEl.value
+  if (element) {
+    element.scrollTop = element.scrollHeight
+  }
+}
+
+function renderMarkdown(text) {
+  const escaped = text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+
+  const lines = escaped.split('\n')
+  const html = []
+  let listType = ''
+  let inCode = false
+  const closeList = () => {
+    if (listType) {
+      html.push(`</${listType}>`)
+      listType = ''
+    }
+  }
+
+  for (const rawLine of lines) {
+    const line = rawLine.trimEnd()
+    const orderedMatch = line.match(/^\s*\d+\.\s+(.+)$/)
+    const unorderedMatch = line.match(/^\s*[-*]\s+(.+)$/)
+
+    if (line.trim().startsWith('```')) {
+      closeList()
+      if (!inCode) {
+        html.push('<pre><code>')
+        inCode = true
+      } else {
+        html.push('</code></pre>')
+        inCode = false
+      }
+      continue
+    }
+
+    if (inCode) {
+      html.push(`${line}\n`)
+      continue
+    }
+
+    if (orderedMatch || unorderedMatch) {
+      const nextType = orderedMatch ? 'ol' : 'ul'
+      if (listType && listType !== nextType) {
+        closeList()
+      }
+      if (!listType) {
+        html.push(`<${nextType}>`)
+        listType = nextType
+      }
+      html.push(`<li>${formatInlineMarkdown((orderedMatch || unorderedMatch)[1])}</li>`)
+      continue
+    }
+
+    closeList()
+
+    if (!line.trim()) {
+      continue
+    } else if (/^\s*---+\s*$/.test(line)) {
+      html.push('<hr>')
+    } else if (line.startsWith('#### ')) {
+      html.push(`<h4>${formatInlineMarkdown(line.slice(5))}</h4>`)
+    } else if (line.startsWith('### ')) {
+      html.push(`<h3>${formatInlineMarkdown(line.slice(4))}</h3>`)
+    } else if (line.startsWith('## ')) {
+      html.push(`<h2>${formatInlineMarkdown(line.slice(3))}</h2>`)
+    } else if (line.startsWith('# ')) {
+      html.push(`<h1>${formatInlineMarkdown(line.slice(2))}</h1>`)
+    } else {
+      html.push(`<p>${formatInlineMarkdown(line)}</p>`)
+    }
+  }
+
+  closeList()
+  if (inCode) {
+    html.push('</code></pre>')
+  }
+
+  return html.join('')
+}
+
+function formatInlineMarkdown(text) {
+  return text
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*(.+?)\*/g, '<em>$1</em>')
+    .replace(/`(.+?)`/g, '<code>$1</code>')
 }
 
 function handleKeydown(event) {
@@ -386,7 +530,7 @@ function saveActiveConversation(latestQuestion = '') {
         </div>
       </header>
 
-      <section class="chat-area">
+      <section ref="chatAreaEl" class="chat-area">
         <div class="messages">
           <div
             v-for="(message, index) in messages"
@@ -395,7 +539,19 @@ function saveActiveConversation(latestQuestion = '') {
             :class="message.role"
           >
             <div v-if="message.role === 'assistant'" class="avatar">AI</div>
-            <div class="bubble">{{ message.content }}</div>
+            <div
+              v-if="message.role === 'assistant'"
+              class="bubble markdown-body"
+            >
+              <div v-if="message.isStreaming && !message.content" class="typing-loader">
+                <span></span>
+                <span></span>
+                <span></span>
+                <em>正在检索并生成回答</em>
+              </div>
+              <div v-else v-html="renderMarkdown(message.content)"></div>
+            </div>
+            <div v-else class="bubble">{{ message.content }}</div>
             <div v-if="message.role === 'user'" class="avatar user-avatar">我</div>
           </div>
         </div>

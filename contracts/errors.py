@@ -15,6 +15,14 @@ class ServiceError(Exception):
         self.retryable = retryable
         self.details = details or {}
 
+    def to_dict(self) -> dict:
+        return {
+            "code": self.code,
+            "message": self.message,
+            "retryable": self.retryable,
+            "details": self.details,
+        }
+
 
 INVALID_FILE_TYPE = "INVALID_FILE_TYPE"
 DOCUMENT_PARSE_FAILED = "DOCUMENT_PARSE_FAILED"
@@ -25,4 +33,3 @@ GRAPH_QUERY_FAILED = "GRAPH_QUERY_FAILED"
 MODEL_CALL_FAILED = "MODEL_CALL_FAILED"
 EMPTY_RETRIEVAL_RESULT = "EMPTY_RETRIEVAL_RESULT"
 INVALID_REQUEST = "INVALID_REQUEST"
-

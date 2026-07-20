@@ -2,6 +2,23 @@
 
 import os
 from dataclasses import dataclass, field
+from pathlib import Path
+
+
+def _load_dotenv() -> None:
+    """Load a local .env file without adding another runtime dependency."""
+    env_path = Path(__file__).resolve().parents[1] / ".env"
+    if not env_path.exists():
+        return
+
+    for raw_line in env_path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip()
+        value = value.strip().strip('"').strip("'")
+        os.environ.setdefault(key, value)
 
 
 @dataclass
@@ -33,6 +50,7 @@ class Settings:
     @classmethod
     def from_env(cls) -> "Settings":
         """从环境变量构建 Settings 实例。"""
+        _load_dotenv()
         return cls(
             llm_api_key=os.getenv("LLM_API_KEY", ""),
             llm_base_url=os.getenv("LLM_BASE_URL", "https://api.deepseek.com"),

@@ -35,7 +35,7 @@ class DocumentLoadResult:
 class DocumentLoader:
     """读取 PDF、DOCX、TXT 文档，返回原始文本和页级元数据。"""
 
-    SUPPORTED_EXTENSIONS = {".pdf", ".docx", ".txt"}
+    SUPPORTED_EXTENSIONS = {".pdf", ".docx", ".txt", ".md"}
 
     def load(self, file_path: str) -> DocumentLoadResult:
         """根据扩展名分派到对应的加载器。
@@ -71,7 +71,7 @@ class DocumentLoader:
                 result = self._load_pdf(file_path)
             elif ext == ".docx":
                 result = self._load_docx(file_path)
-            elif ext == ".txt":
+            elif ext in {".txt", ".md"}:
                 result = self._load_txt(file_path)
             else:
                 # 已经在前面的检查中排除，这里是防御性代码

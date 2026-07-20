@@ -13,6 +13,72 @@ from contracts.models import (
     SourceReference,
     now_text,
 )
+from graphdb.mock_graph_repository import MockGraphRepository
+from rag.document_processor import DocumentProcessor
+from rag.entity_extractor import EntityExtractor
+from rag.intent_router import IntentRouter
+from rag.llm_client import LLMClient
+from rag.query_rewriter import QueryRewriter
+from rag.rag_pipeline import RAGPipeline
+from rag.reranker import Reranker
+from rag.retriever import Retriever
+from rag.session_store import SessionStore
+
+
+class RAGBackendService:
+    def __init__(self, pipeline: RAGPipeline, graph_repository: MockGraphRepository) -> None:
+        self.pipeline = pipeline
+        self.graph_repository = graph_repository
+
+    def health_check(self) -> dict:
+        graph_status = "ready" if self.graph_repository.health_check() else "unavailable"
+        return {
+            "status": "ready",
+            "message": "RAG Backend 已启动，当前使用 Mock GraphDB 存储。",
+            "details": {
+                "llm": "deepseek-chat",
+                "graphdb": graph_status,
+                "storage": "mock-memory",
+            },
+        }
+
+    def ingest_document(self, file_path: str, knowledge_base_id: str) -> DocumentSummary:
+        return self.pipeline.process_document(file_path, knowledge_base_id)
+
+    def answer(self, request: QueryRequest) -> QueryResponse:
+        return self.pipeline.answer_query(request)
+
+    def answer_stream(self, request: QueryRequest):
+        return self.pipeline.answer_query_stream(request)
+
+    def list_documents(self, knowledge_base_id: str) -> list[DocumentSummary]:
+        return self.graph_repository.list_documents(knowledge_base_id)
+
+    def delete_document(self, knowledge_base_id: str, document_id: str) -> bool:
+        return self.graph_repository.delete_document(knowledge_base_id, document_id)
+
+    def clear_session(self, session_id: str) -> bool:
+        return self.pipeline.session_store.clear_session(session_id)
+
+
+def create_backend_service() -> RAGBackendService:
+    llm_client = LLMClient()
+    session_store = SessionStore()
+    graph_repository = MockGraphRepository()
+    retriever = Retriever(graph_repository)
+
+    pipeline = RAGPipeline(
+        document_processor=DocumentProcessor(),
+        entity_extractor=EntityExtractor(llm_client),
+        intent_router=IntentRouter(llm_client),
+        query_rewriter=QueryRewriter(llm_client, session_store),
+        retriever=retriever,
+        reranker=Reranker(),
+        llm_client=llm_client,
+        session_store=session_store,
+        graph_repository=graph_repository,
+    )
+    return RAGBackendService(pipeline, graph_repository)
 
 
 class MockBackendService:
@@ -96,4 +162,3 @@ class MockBackendService:
             session_id=request.session_id,
             trace_id=request.trace_id or f"trace_{uuid.uuid4().hex[:12]}",
         )
-

@@ -15,9 +15,9 @@ PyMuPDF>=1.23.0
 python-docx>=0.8.11
 
 # --- Web 框架 ---
-fastapi>=0.100.0
-uvicorn[standard]>=0.23.0
-python-multipart>=0.0.6
+fastapi>=0.111.0
+uvicorn[standard]>=0.30.0
+python-multipart>=0.0.9
 
 # --- 可选依赖（v2 增强） ---
 # jieba>=0.42.1        # 中文分词（用于重排优化）

@@ -15,7 +15,7 @@ backend/
   main.py               FastAPI 接口入口
 
 rag/
-  backend_service_impl.py  当前 Mock RAG 服务，后续替换真实 LangChain RAG
+  backend_service_impl.py  RAG 业务服务入口，当前接真实 RAG 流程
 
 graphdb/
   mock_graph_repository.py Mock GraphDB 仓库，后续替换真实 GraphDB
@@ -55,4 +55,5 @@ http://127.0.0.1:5173
 - `DELETE /api/documents/{document_id}`
 - `POST /api/answer`
 
-现在后端使用 Mock 数据，后续接真实 LangChain、GraphDB 和大模型时保持这些接口不变即可。
+现在后端已经接入文档解析、切块、意图识别、问题改写、实体抽取、检索重排和 DeepSeek 问答生成。
+当前还没有接真实 GraphDB，图数据库层暂时使用 `graphdb/mock_graph_repository.py` 的内存 Mock 仓库，后续替换真实 GraphDB 时保持接口不变即可。

@@ -33,6 +33,48 @@ export async function askQuestion(payload) {
   return readJson(response)
 }
 
+export async function streamQuestion(payload, onDelta) {
+  const response = await fetch(`${API_BASE}/api/answer/stream`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify(payload)
+  })
+
+  if (!response.ok || !response.body) {
+    const data = await response.json().catch(() => ({}))
+    throw new Error(data.detail?.message || data.detail || data.message || '请求失败')
+  }
+
+  const reader = response.body.getReader()
+  const decoder = new TextDecoder('utf-8')
+  let buffer = ''
+
+  while (true) {
+    const { value, done } = await reader.read()
+    if (done) break
+
+    buffer += decoder.decode(value, { stream: true })
+    const chunks = buffer.split('\n\n')
+    buffer = chunks.pop() || ''
+
+    for (const chunk of chunks) {
+      const dataLine = chunk
+        .split('\n')
+        .find((line) => line.startsWith('data:'))
+      if (!dataLine) continue
+      const event = JSON.parse(dataLine.slice(5).trim())
+      if (event.type === 'delta') {
+        onDelta(event.content)
+      }
+      if (event.type === 'error') {
+        throw new Error(event.message || '请求失败')
+      }
+    }
+  }
+}
+
 async function readJson(response) {
   const data = await response.json()
   if (!response.ok) {
@@ -40,4 +82,3 @@ async function readJson(response) {
   }
   return data
 }
-

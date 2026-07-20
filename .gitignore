@@ -1,8 +1,8 @@
 .venv/
 .uv-cache/
+.env
 __pycache__/
 *.pyc
 backend/uploads/
 frontend/node_modules/
 frontend/dist/
-

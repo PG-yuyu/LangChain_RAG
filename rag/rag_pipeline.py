@@ -233,6 +233,64 @@ class RAGPipeline:
             trace_id=trace_id,
         )
 
+    def answer_query_stream(self, request: QueryRequest):
+        """流式问答：检索流程完成后，将 LLM 生成结果逐段返回。"""
+        trace_id = request.trace_id or str(uuid.uuid4())[:8]
+        logger.info("[%s] Streaming query: %.80s...", trace_id, request.query)
+
+        self.session_store.add_message(request.session_id, "user", request.query)
+        intent = self._detect_intent(request.query, trace_id)
+
+        if intent == IntentType.NORMAL_CHAT:
+            history = self.session_store.get_history(request.session_id, max_messages=6)
+            messages = build_normal_chat_prompt(request.query, history)
+            collected: list[str] = []
+            try:
+                for delta in self.llm.chat_stream(messages):
+                    collected.append(delta)
+                    yield delta
+            except Exception as e:
+                logger.error("[%s] Normal chat stream failed: %s", trace_id, e)
+                fallback = "抱歉，我暂时无法回复，请稍后再试。"
+                collected.append(fallback)
+                yield fallback
+            self.session_store.add_message(request.session_id, "assistant", "".join(collected))
+            return
+
+        rewritten_query = request.query
+        if request.enable_query_rewrite:
+            rewritten_query = self._rewrite_query(request.query, request.session_id, trace_id)
+
+        entity_names = self._extract_query_entities(rewritten_query, intent, trace_id)
+        retrieval_result = self._retrieve(
+            rewritten_query=rewritten_query,
+            entity_names=entity_names,
+            request=request,
+            trace_id=trace_id,
+        )
+        reranked_chunks = self._rerank_chunks(rewritten_query, retrieval_result.chunks, trace_id)
+        messages = build_answer_prompt(
+            query=request.query,
+            rewritten_query=rewritten_query,
+            chunks=reranked_chunks,
+            graph_nodes=retrieval_result.nodes,
+            graph_edges=retrieval_result.edges,
+            intent=intent,
+        )
+
+        collected: list[str] = []
+        try:
+            for delta in self.llm.chat_stream(messages, temperature=0.3):
+                collected.append(delta)
+                yield delta
+        except Exception as e:
+            logger.error("[%s] Answer stream failed: %s", trace_id, e)
+            fallback = "抱歉，我在生成回答时遇到了问题，请稍后再试。"
+            collected.append(fallback)
+            yield fallback
+
+        self.session_store.add_message(request.session_id, "assistant", "".join(collected))
+
     # ── 子步骤（每步有独立错误处理）─────────────────────────
 
     def _detect_intent(self, query: str, trace_id: str) -> IntentType:
