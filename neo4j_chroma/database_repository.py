@@ -7,8 +7,8 @@ from datetime import datetime, timezone
 import json
 from typing import Any, Iterable, Mapping, Sequence
 
-from graphdb import cypher_queries as queries
-from graphdb.neo4j_client import Neo4jClient
+from neo4j_chroma import cypher_queries as queries
+from neo4j_chroma.neo4j_client import Neo4jClient
 
 
 @dataclass(slots=True)

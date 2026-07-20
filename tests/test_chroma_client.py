@@ -1,7 +1,7 @@
 import unittest
 
-from graphdb.chroma_client import ChromaClient
-from graphdb.embedding import HashEmbeddingFunction
+from neo4j_chroma.chroma_client import ChromaClient
+from neo4j_chroma.embedding import HashEmbeddingFunction
 
 
 class FakeCollection:

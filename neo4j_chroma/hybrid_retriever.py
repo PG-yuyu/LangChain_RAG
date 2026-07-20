@@ -5,8 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Sequence
 
-from graphdb.database_repository import ChildChunkNode, DatabaseRepository, ParentChunkNode
-from graphdb.vector_store import VectorDocument, VectorSearchResult, VectorStore
+from neo4j_chroma.database_repository import ChildChunkNode, DatabaseRepository, ParentChunkNode
+from neo4j_chroma.vector_store import VectorDocument, VectorSearchResult, VectorStore
 
 
 @dataclass(slots=True)

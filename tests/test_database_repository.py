@@ -1,7 +1,7 @@
 import unittest
 
-from graphdb import cypher_queries as queries
-from graphdb.database_repository import (
+from neo4j_chroma import cypher_queries as queries
+from neo4j_chroma.database_repository import (
     ChildChunkNode,
     DatabaseRepository,
     DocumentNode,

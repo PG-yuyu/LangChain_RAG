@@ -1,4 +1,4 @@
-"""Initialize Neo4j constraints and indexes for the graphdb module."""
+"""Initialize Neo4j constraints and indexes for the neo4j_chroma module."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from graphdb.database_repository import DatabaseRepository
+from neo4j_chroma.database_repository import DatabaseRepository
 
 
 def main() -> int:

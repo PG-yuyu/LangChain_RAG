@@ -1,10 +1,10 @@
 import math
 import unittest
 
-from graphdb.chroma_client import ChromaClient
-from graphdb.database_repository import ChildChunkNode, ParentChunkNode
-from graphdb.embedding import HashEmbeddingFunction
-from graphdb.vector_store import VectorStore
+from neo4j_chroma.chroma_client import ChromaClient
+from neo4j_chroma.database_repository import ChildChunkNode, ParentChunkNode
+from neo4j_chroma.embedding import HashEmbeddingFunction
+from neo4j_chroma.vector_store import VectorStore
 
 
 class InMemoryCollection:

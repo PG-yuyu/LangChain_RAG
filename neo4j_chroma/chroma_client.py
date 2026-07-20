@@ -5,8 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Callable
 
-from graphdb.config import GraphDBConfig
-from graphdb.embedding import HashEmbeddingFunction, create_embedding_function
+from neo4j_chroma.config import GraphDBConfig
+from neo4j_chroma.embedding import HashEmbeddingFunction, create_embedding_function
 
 
 ClientFactory = Callable[[str], Any]

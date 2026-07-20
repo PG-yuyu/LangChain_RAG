@@ -1,8 +1,8 @@
 import unittest
 
-from graphdb.database_repository import ChildChunkNode, ParentChunkNode
-from graphdb.hybrid_retriever import HybridRetriever
-from graphdb.vector_store import VectorDocument, VectorSearchResult
+from neo4j_chroma.database_repository import ChildChunkNode, ParentChunkNode
+from neo4j_chroma.hybrid_retriever import HybridRetriever
+from neo4j_chroma.vector_store import VectorDocument, VectorSearchResult
 
 
 class FakeVectorStore:

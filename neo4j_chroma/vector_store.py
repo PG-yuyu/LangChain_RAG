@@ -6,9 +6,9 @@ from dataclasses import dataclass, field
 import json
 from typing import Any, Iterable, Mapping, Sequence
 
-from graphdb.chroma_client import ChromaClient
-from graphdb.database_repository import ChildChunkNode, ParentChunkNode
-from graphdb.embedding import HashEmbeddingFunction
+from neo4j_chroma.chroma_client import ChromaClient
+from neo4j_chroma.database_repository import ChildChunkNode, ParentChunkNode
+from neo4j_chroma.embedding import HashEmbeddingFunction
 
 
 @dataclass(slots=True)

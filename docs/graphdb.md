@@ -4,6 +4,8 @@
 
 本轮开发只以 `E:\Desktop\实习实训\RAG Project\02-05_01-Rag Project.md` 为准，不采用 `docs/分工.md`、`docs/接口设计.md` 或此前 GraphDB / RDF / SPARQL 说明中的冲突内容。
 
+代码包命名为 `neo4j_chroma/`，避免和 Ontotext GraphDB、RDF 或 SPARQL 方向混淆。本文档保留 `docs/graphdb.md` 文件名，是因为需求明确指定正式说明文档写在该路径。
+
 ## 设计取舍
 
 原参考方案使用 MySQL + Chroma：MySQL 负责文档元数据、父子 chunk 结构和删除管理，Chroma 负责向量召回和父块上下文回溯。本轮用 Neo4j 替代 MySQL，是因为 Document -> ParentChunk -> ChildChunk 天然是图结构，后续还可以继续扩展 Entity / Relation / Concept，用同一结构化数据库支持知识图谱展示和关系检索。
@@ -96,14 +98,14 @@ EMBEDDING_DIMENSION=384
 当前环境没有安装 `pytest`，本轮测试使用标准库 `unittest`：
 
 ```bash
-python -m unittest tests.test_neo4j_client tests.test_chroma_client tests.test_database_repository tests.test_vector_store tests.test_hybrid_retriever tests.test_graphdb_integration
+python -m unittest tests.test_neo4j_client tests.test_chroma_client tests.test_database_repository tests.test_vector_store tests.test_hybrid_retriever tests.test_neo4j_chroma_integration
 ```
 
 真实集成测试默认 skip。如需开启：
 
 ```bash
-set GRAPHDB_RUN_INTEGRATION=1
-python -m unittest tests.test_graphdb_integration
+set NEO4J_CHROMA_RUN_INTEGRATION=1
+python -m unittest tests.test_neo4j_chroma_integration
 ```
 
 ## 初始化 Neo4j

@@ -2,8 +2,8 @@ import os
 import unittest
 from unittest.mock import patch
 
-from graphdb.config import GraphDBConfig
-from graphdb.neo4j_client import Neo4jClient
+from neo4j_chroma.config import GraphDBConfig
+from neo4j_chroma.neo4j_client import Neo4jClient
 
 
 class FakeRecord:

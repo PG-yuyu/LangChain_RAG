@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Callable
 
-from graphdb.config import GraphDBConfig
+from neo4j_chroma.config import GraphDBConfig
 
 
 DriverFactory = Callable[[str, tuple[str, str]], Any]
