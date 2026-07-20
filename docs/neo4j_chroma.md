@@ -4,7 +4,7 @@
 
 本轮开发只以 `E:\Desktop\实习实训\RAG Project\02-05_01-Rag Project.md` 为准，不采用 `docs/分工.md`、`docs/接口设计.md` 或此前 GraphDB / RDF / SPARQL 说明中的冲突内容。
 
-代码包命名为 `neo4j_chroma/`，避免和 Ontotext GraphDB、RDF 或 SPARQL 方向混淆。本文档保留 `docs/graphdb.md` 文件名，是因为需求明确指定正式说明文档写在该路径。
+代码包和正式文档分别命名为 `neo4j_chroma/` 与 `docs/neo4j_chroma.md`，避免和 Ontotext GraphDB、RDF 或 SPARQL 方向混淆。
 
 ## 设计取舍
 
