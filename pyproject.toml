@@ -1,0 +1,14 @@
+[project]
+name = "langchain-rag-fastapi"
+version = "0.1.0"
+description = "FastAPI backend and Vue frontend for a LangChain GraphRAG text QA project."
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.111.0",
+    "uvicorn[standard]>=0.30.0",
+    "python-multipart>=0.0.9",
+]
+
+[tool.uv]
+package = false
+
