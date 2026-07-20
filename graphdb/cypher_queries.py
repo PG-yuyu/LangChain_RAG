@@ -164,3 +164,11 @@ FOREACH (parent IN parents | DETACH DELETE parent)
 DETACH DELETE d
 RETURN 1 AS deleted_count
 """
+
+CLEAR_ALL_DOCUMENTS = """
+MATCH (n)
+WHERE n:Document OR n:ParentChunk OR n:ChildChunk
+WITH collect(n) AS nodes, count(n) AS deleted_count
+FOREACH (node IN nodes | DETACH DELETE node)
+RETURN deleted_count
+"""

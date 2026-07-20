@@ -137,6 +137,12 @@ class DatabaseRepository:
         rows = self.neo4j_client.execute(queries.DELETE_DOCUMENT, {"document_id": document_id})
         return bool(rows)
 
+    def clear_all_documents(self) -> int:
+        rows = self.neo4j_client.execute(queries.CLEAR_ALL_DOCUMENTS)
+        if not rows:
+            return 0
+        return int(rows[0].get("deleted_count") or 0)
+
     @staticmethod
     def _coerce_document(
         document: DocumentNode | Mapping[str, Any],

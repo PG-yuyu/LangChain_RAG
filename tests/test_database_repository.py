@@ -44,6 +44,8 @@ class FakeNeo4jClient:
             ]
         if query == queries.DELETE_DOCUMENT:
             return [{"deleted_count": 1}]
+        if query == queries.CLEAR_ALL_DOCUMENTS:
+            return [{"deleted_count": 3}]
         return []
 
 
@@ -104,6 +106,11 @@ class DatabaseRepositoryTest(unittest.TestCase):
 
         self.assertEqual(len(chunks), 1)
         self.assertEqual(chunks[0].metadata["page_number"], 3)
+
+    def test_clear_all_documents_returns_deleted_count(self):
+        repository = DatabaseRepository(FakeNeo4jClient())
+
+        self.assertEqual(repository.clear_all_documents(), 3)
 
 
 if __name__ == "__main__":
