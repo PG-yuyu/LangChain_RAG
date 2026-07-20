@@ -1,53 +1,8 @@
-# ============================================
-# Python
-# ============================================
-__pycache__/
-*.py[cod]
-*.pyo
-*.egg-info/
-dist/
-build/
-*.egg
-*.so
-
-# Virtual environments
-venv/
 .venv/
-env/
-.env
+.uv-cache/
+__pycache__/
+*.pyc
+backend/uploads/
+frontend/node_modules/
+frontend/dist/
 
-# IDE
-.vscode/
-.idea/
-*.swp
-*.swo
-*~
-
-# OS
-.DS_Store
-Thumbs.db
-Desktop.ini
-
-# ============================================
-# Project-specific
-# ============================================
-
-# Environment file (contains API keys)
-.env
-
-# Temporary uploads
-tmp/
-temp/
-rag_upload_*/
-
-# Test outputs
-.pytest_cache/
-.coverage
-htmlcov/
-
-# Logs
-*.log
-logs/
-
-# Jupyter
-.ipynb_checkpoints/

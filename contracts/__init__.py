@@ -1,2 +1,2 @@
-# contracts - 共享接口层
-# 成员 1、2、3 共同维护，只放数据类、枚举、接口声明和错误码
+"""Shared interface contracts for the GraphRAG project."""
+
