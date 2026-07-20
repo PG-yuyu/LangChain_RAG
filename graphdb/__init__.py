@@ -10,6 +10,7 @@ from graphdb.database_repository import (
 from graphdb.embedding import HashEmbeddingFunction, create_embedding_function
 from graphdb.neo4j_client import Neo4jClient
 from graphdb.chroma_client import ChromaClient
+from graphdb.vector_store import VectorDocument, VectorSearchResult, VectorStore
 
 __all__ = [
     "ChildChunkNode",
@@ -20,5 +21,8 @@ __all__ = [
     "HashEmbeddingFunction",
     "Neo4jClient",
     "ParentChunkNode",
+    "VectorDocument",
+    "VectorSearchResult",
+    "VectorStore",
     "create_embedding_function",
 ]
