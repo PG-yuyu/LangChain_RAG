@@ -5,15 +5,25 @@
 ## 结构
 
 ```text
+contracts/
+  models.py             共享接口数据结构
+  backend_service.py    前端调用的统一业务接口
+  graph_repository.py   RAG 调用的 GraphDB 抽象接口
+  errors.py             统一错误结构和错误码
+
 backend/
-  main.py          FastAPI 接口入口
-  models.py        共享接口数据结构
-  services.py      Mock RAG 服务
+  main.py               FastAPI 接口入口
+
+rag/
+  backend_service_impl.py  当前 Mock RAG 服务，后续替换真实 LangChain RAG
+
+graphdb/
+  mock_graph_repository.py Mock GraphDB 仓库，后续替换真实 GraphDB
 
 frontend/
-  src/App.vue      Vue 页面
-  src/api.js       前端接口调用
-  src/styles.css   页面样式
+  src/App.vue           Vue 页面
+  src/api.js            前端接口调用
+  src/styles.css        页面样式
 ```
 
 ## 后端运行

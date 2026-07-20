@@ -6,15 +6,15 @@ from pathlib import Path
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 
-from backend.models import DocumentSummary, HealthResponse, QueryRequest, QueryResponse
-from backend.services import MockRAGService
+from contracts.models import DocumentSummary, HealthResponse, QueryRequest, QueryResponse
+from rag.backend_service_impl import MockBackendService
 
 BASE_DIR = Path(__file__).resolve().parent
 UPLOAD_DIR = BASE_DIR / "uploads"
 UPLOAD_DIR.mkdir(exist_ok=True)
 
 app = FastAPI(title="GraphRAG API", version="0.1.0")
-service = MockRAGService()
+service = MockBackendService()
 
 app.add_middleware(
     CORSMiddleware,
@@ -27,10 +27,7 @@ app.add_middleware(
 
 @app.get("/api/health", response_model=HealthResponse)
 def health_check() -> HealthResponse:
-    return HealthResponse(
-        status="mock-ready",
-        message="FastAPI Mock Backend 已启动，可用于前端联调。",
-    )
+    return HealthResponse(**service.health_check())
 
 
 @app.get("/api/documents", response_model=list[DocumentSummary])
@@ -65,4 +62,3 @@ def answer(request: QueryRequest) -> QueryResponse:
     if not request.query.strip():
         raise HTTPException(status_code=400, detail="问题不能为空")
     return service.answer(request)
-
