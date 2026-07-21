@@ -62,6 +62,10 @@ class HashEmbeddingFunction:
         """Chroma-compatible callable interface."""
         return self.embed_documents(list(input))
 
+    def name(self) -> str:
+        """Chroma 1.x expects embedding functions to expose a stable name."""
+        return "hash"
+
     def embed_query(self, text: str) -> list[float]:
         return self.embed(text)
 

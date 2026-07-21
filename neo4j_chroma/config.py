@@ -4,6 +4,19 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import os
+from pathlib import Path
+
+
+def _load_dotenv() -> None:
+    env_path = Path(__file__).resolve().parents[1] / ".env"
+    if not env_path.exists():
+        return
+    for raw_line in env_path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
 
 
 def _getenv(name: str, default: str) -> str:
@@ -29,13 +42,14 @@ class GraphDBConfig:
     chroma_persist_directory: str = ".chroma"
     chroma_parent_collection: str = "parent_documents"
     chroma_child_collection: str = "child_documents"
-    embedding_provider: str = "hash"
+    embedding_provider: str = "chroma_default"
     embedding_dimension: int = 384
     top_k: int = 5
 
     @classmethod
     def from_env(cls) -> "GraphDBConfig":
         """Build config from environment variables."""
+        _load_dotenv()
 
         persist_dir = os.getenv("CHROMA_PERSIST_DIRECTORY") or os.getenv(
             "CHROMA_PERSIST_DIR",
@@ -55,7 +69,7 @@ class GraphDBConfig:
                 "CHROMA_CHILD_COLLECTION",
                 "child_documents",
             ),
-            embedding_provider=_getenv("EMBEDDING_PROVIDER", "hash"),
+            embedding_provider=_getenv("EMBEDDING_PROVIDER", "chroma_default"),
             embedding_dimension=_getint("EMBEDDING_DIMENSION", 384),
             top_k=_getint("RAG_TOP_K", 5),
         )
