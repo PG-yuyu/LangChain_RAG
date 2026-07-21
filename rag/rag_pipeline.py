@@ -202,6 +202,7 @@ class RAGPipeline:
 
         # Step 7: 重排
         reranked_chunks = self._rerank_chunks(rewritten_query, retrieval_result.chunks, trace_id)
+        sources = self._build_sources(reranked_chunks)
 
         # Step 8: 答案生成
         answer = self._generate_answer(
@@ -211,18 +212,18 @@ class RAGPipeline:
             graph_nodes=retrieval_result.nodes,
             graph_edges=retrieval_result.edges,
             intent=intent,
+            sources=cited_sources,
             trace_id=trace_id,
         )
 
         # Step 9: 保存助手回复
         self.session_store.add_message(request.session_id, "assistant", answer)
+        cited_sources = self._filter_cited_sources(answer, sources)
 
         # Step 10: 构建响应
-        sources = self._build_sources(reranked_chunks)
-
         logger.info(
             "[%s] Response ready: intent=%s, sources=%d, graph_nodes=%d, answer_length=%d",
-            trace_id, intent.value, len(sources), len(retrieval_result.nodes), len(answer),
+            trace_id, intent.value, len(cited_sources), len(retrieval_result.nodes), len(answer),
         )
 
         return QueryResponse(
@@ -283,6 +284,7 @@ class RAGPipeline:
             graph_nodes=retrieval_result.nodes,
             graph_edges=retrieval_result.edges,
             intent=intent,
+            sources=sources,
         )
 
         collected: list[str] = []
@@ -296,12 +298,14 @@ class RAGPipeline:
             collected.append(fallback)
             yield fallback
 
-        self.session_store.add_message(request.session_id, "assistant", "".join(collected))
+        answer = "".join(collected)
+        self.session_store.add_message(request.session_id, "assistant", answer)
+        cited_sources = self._filter_cited_sources(answer, sources)
         yield {
             "type": "sources",
             "sources": [
                 source.model_dump() if hasattr(source, "model_dump") else source.dict()
-                for source in sources
+                for source in cited_sources
             ],
         }
 
@@ -421,6 +425,7 @@ class RAGPipeline:
         graph_nodes: list[GraphNode],
         graph_edges: list[GraphEdge],
         intent: IntentType,
+        sources: list[SourceReference],
         trace_id: str,
     ) -> str:
         """调用 LLM 生成最终答案。"""
@@ -431,6 +436,7 @@ class RAGPipeline:
             graph_nodes=graph_nodes,
             graph_edges=graph_edges,
             intent=intent,
+            sources=sources,
         )
 
         try:
@@ -455,10 +461,10 @@ class RAGPipeline:
                 filename=chunk.filename,
                 chunk_id=chunk.chunk_id,
                 page_number=chunk.page_number,
-                content=RAGPipeline._clean_source_content(chunk.content)[:300],  # 截取前 300 字符作为摘要
+                content=RAGPipeline._clean_source_content(chunk.content)[:1200],
                 score=chunk.score,
             ))
-        return sorted(
+        sorted_sources = sorted(
             sources,
             key=lambda source: (
                 source.filename,
@@ -466,6 +472,23 @@ class RAGPipeline:
                 source.chunk_id,
             ),
         )
+        for index, source in enumerate(sorted_sources, start=1):
+            source.citation_index = index
+        return sorted_sources
+
+    @staticmethod
+    def _filter_cited_sources(answer: str, sources: list[SourceReference]) -> list[SourceReference]:
+        cited_indexes = {
+            int(match)
+            for match in re.findall(r"\{\{source:(\d+)\}\}", answer)
+        }
+        if not cited_indexes:
+            return []
+        return [
+            source
+            for source in sources
+            if source.citation_index in cited_indexes
+        ]
 
     @staticmethod
     def _clean_source_content(content: str) -> str:

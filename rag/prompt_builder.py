@@ -8,6 +8,7 @@ from contracts.models import (
     GraphNode,
     IntentType,
     RetrievedChunk,
+    SourceReference,
 )
 
 # ══════════════════════════════════════════════════════════════
@@ -168,10 +169,10 @@ _SYSTEM_ANSWER = """你是一个智能文档检索助手，基于提供的文档
 5. 用中文回答，条理清晰、内容充实
 6. 不要使用 [1]、[2] 这类方括号引用编号
 7. 只给关键结论添加少量来源标记，格式必须是 {{source:编号}}，例如 {{source:1}}
-8. 每个自然段最多添加 1 个来源标记，全文最多添加 3 个来源标记
+8. 每个自然段最多添加 1 个来源标记，全文最多添加 2 个来源标记
 9. 来源标记必须放在句号、问号、感叹号、分号等结束标点之后，例如"这是结论。{{source:1}}"
 10. 不要写成"这是结论{{source:1}}。"，不要把来源标记放到结束标点前
-11. 不要在每句话后、每个分点后都添加来源标记
+11. 不要在每句话后、每个分点后都添加来源标记；同一自然段如果已经有来源标记，后面不要再加第二个
 12. 不要在回答末尾添加"来源："或文件名说明
 13. 如果涉及实体关系，只说明关系内容，不要额外列出来源文档
 14. 对于 graph_query 意图，重点说明实体间的关系路径"""
@@ -184,12 +185,22 @@ def build_answer_prompt(
     graph_nodes: list[GraphNode],
     graph_edges: list[GraphEdge],
     intent: IntentType,
+    sources: list[SourceReference] | None = None,
 ) -> list[dict]:
     """构建最终答案生成的 messages。"""
     context_parts: list[str] = []
 
+    if sources:
+        context_parts.append("## 参考文档内容：")
+        context_parts.append("### 来源编号：")
+        for source in sources:
+            page_info = f"第 {source.page_number} 页" if source.page_number else "未知页"
+            context_parts.append(
+                f"source:{source.citation_index} = {source.filename} ({page_info})\n{source.content}"
+            )
+
     # 文档块上下文
-    if chunks:
+    if chunks and not sources:
         context_parts.append("## 参考文档内容：")
         document_names: dict[str, str] = {}
         for chunk in chunks:
@@ -234,6 +245,8 @@ def build_answer_prompt(
         f"（改写后：{rewritten_query}）\n\n"
         f"参考信息：\n{context}\n"
         f"{intent_guidance}\n"
+        "引用要求：{{source:编号}} 只能使用上面列出的 source 编号；每个 source 编号对应一个具体检索片段和页码，不能自己编造编号。\n"
+        "只有当某个观点能被对应片段直接支持时，才在该观点所在自然段末尾添加来源标签；不要给无法直接支持的观点添加来源。\n"
         f"请基于以上参考信息回答问题。不要使用 [1]、[2] 这类方括号编号；"
         f"如需标注观点来源，只使用 {{source:编号}} 这种格式，且不要在末尾添加来源文件名。"
     )

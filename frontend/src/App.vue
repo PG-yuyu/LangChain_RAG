@@ -315,7 +315,7 @@ function renderMarkdown(text, sources = []) {
 }
 
 function formatInlineMarkdown(text, sourceLabels = {}) {
-  const normalized = normalizeSourceMarkerPosition(text)
+  const normalized = keepOneSourceMarker(normalizeSourceMarkerPosition(text))
 
   return normalized
     .replace(/\{\{source:(\d+)\}\}/g, (_, index) => {
@@ -409,27 +409,34 @@ function normalizeSourceMarkerPosition(text) {
   return text.replace(/(\{\{source:\d+\}\})([。！？；.!?;])/g, '$2$1')
 }
 
+function keepOneSourceMarker(text) {
+  const markers = [...text.matchAll(/\{\{source:\d+\}\}/g)]
+  if (markers.length <= 1) return text
+  const keepIndex = markers[markers.length - 1].index
+
+  return text.replace(/\{\{source:\d+\}\}/g, (marker, offset) => {
+    return offset === keepIndex ? marker : ''
+  })
+}
+
 function shortenSourceLabel(label) {
   if (!label || label === '来源') return '来源'
-  const dotIndex = label.lastIndexOf('.')
-  const extension = dotIndex > 0 ? label.slice(dotIndex) : ''
-  const name = dotIndex > 0 ? label.slice(0, dotIndex) : label
-  const maxLength = extension ? 10 : 12
+  const [filename, pageSuffix = ''] = label.split(' · ')
+  const dotIndex = filename.lastIndexOf('.')
+  const extension = dotIndex > 0 ? filename.slice(dotIndex) : ''
+  const name = dotIndex > 0 ? filename.slice(0, dotIndex) : filename
+  const maxLength = extension ? 5 : 7
   if (name.length <= maxLength) return label
-  return `${name.slice(0, maxLength)}...${extension}`
+  const suffix = pageSuffix ? ` · ${pageSuffix}` : ''
+  return `${name.slice(0, maxLength)}...${extension}${suffix}`
 }
 
 function buildSourceLabels(sources = []) {
   const labels = {}
-  const documentNames = []
 
-  for (const source of sources) {
-    if (!source.filename || documentNames.includes(source.filename)) continue
-    documentNames.push(source.filename)
-  }
-
-  documentNames.forEach((filename, index) => {
-    labels[String(index + 1)] = filename
+  sources.forEach((source, index) => {
+    const citationIndex = source.citation_index || index + 1
+    labels[String(citationIndex)] = source.filename || '来源'
   })
 
   return labels
@@ -470,6 +477,26 @@ function openConversation(conversationId) {
 
 function toggleMessageSources(message) {
   message.showSources = !message.showSources
+}
+
+function visibleSources(message) {
+  const visibleIndexes = extractVisibleSourceIndexes(message.content || '')
+  if (!visibleIndexes.size) return []
+  return (message.sources || []).filter((source, index) => {
+    const citationIndex = String(source.citation_index || index + 1)
+    return visibleIndexes.has(citationIndex)
+  })
+}
+
+function extractVisibleSourceIndexes(text) {
+  const indexes = new Set()
+  for (const line of text.split('\n')) {
+    const normalized = keepOneSourceMarker(normalizeSourceMarkerPosition(line))
+    for (const match of normalized.matchAll(/\{\{source:(\d+)\}\}/g)) {
+      indexes.add(match[1])
+    }
+  }
+  return indexes
 }
 
 function dedupeSources(sources = []) {
@@ -722,13 +749,13 @@ function saveActiveConversation(latestQuestion = '') {
                 <em>正在检索并生成回答</em>
               </div>
               <div v-else v-html="renderMarkdown(message.content, message.sources)"></div>
-              <div v-if="message.sources?.length" class="source-tools">
+              <div v-if="visibleSources(message).length" class="source-tools">
                 <button class="source-toggle" @click="toggleMessageSources(message)">
-                  {{ message.showSources ? '收起来源' : `来源 ${message.sources.length}` }}
+                  {{ message.showSources ? '收起来源' : `来源 ${visibleSources(message).length}` }}
                 </button>
                 <div v-if="message.showSources" class="source-panel">
                   <div
-                    v-for="(source, sourceIndex) in message.sources"
+                    v-for="(source, sourceIndex) in visibleSources(message)"
                     :key="`${source.document_id}-${source.chunk_id}-${sourceIndex}`"
                     class="source-card"
                   >

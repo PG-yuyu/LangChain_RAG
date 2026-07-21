@@ -159,6 +159,7 @@ def answer_query(
         rewritten_query=response.rewritten_query,
         sources=[
             SourceReferenceResponse(
+                citation_index=s.citation_index,
                 document_id=s.document_id,
                 filename=s.filename,
                 chunk_id=s.chunk_id,

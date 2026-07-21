@@ -101,6 +101,7 @@ class RetrievalResult(BaseModel):
 
 
 class SourceReference(BaseModel):
+    citation_index: int | None = None
     document_id: str
     filename: str
     chunk_id: str
@@ -130,4 +131,3 @@ class HealthResponse(BaseModel):
 
 def now_text() -> str:
     return datetime.now().strftime("%Y-%m-%d %H:%M")
-

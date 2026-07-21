@@ -39,6 +39,7 @@ class DocumentSummaryResponse(BaseModel):
 
 class SourceReferenceResponse(BaseModel):
     """引用来源响应。"""
+    citation_index: int | None = None
     document_id: str
     filename: str
     chunk_id: str

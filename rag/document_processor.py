@@ -126,6 +126,10 @@ class DocumentProcessor:
         if not text.strip():
             return []
 
+        page_chunks = self._chunk_pages(pages, document_id)
+        if page_chunks:
+            return page_chunks
+
         # 1. 先按段落分割
         paragraphs = text.split("\n\n")
         chunks: list[ChunkRecord] = []
@@ -190,17 +194,75 @@ class DocumentProcessor:
 
         return chunks
 
+    def _chunk_pages(
+        self,
+        pages: list,
+        document_id: str,
+    ) -> list[ChunkRecord]:
+        """按页切块，避免一个 chunk 跨页后导致来源页码错位。"""
+        chunks: list[ChunkRecord] = []
+        chunk_index = 0
+
+        for page in pages:
+            page_text = page.text.strip()
+            if not page_text:
+                continue
+
+            paragraphs = page_text.split("\n\n")
+            current_chunk: list[str] = []
+            current_len = 0
+
+            for para in paragraphs:
+                para = para.strip()
+                if not para:
+                    continue
+
+                para_len = len(para)
+                if current_len + para_len > self.chunk_size and current_chunk:
+                    chunk_index += 1
+                    chunks.append(self._make_chunk_record(
+                        text="\n\n".join(current_chunk),
+                        document_id=document_id,
+                        chunk_index=chunk_index,
+                        pages=pages,
+                        page_number=page.page_number,
+                    ))
+
+                    if self.chunk_overlap > 0 and current_chunk:
+                        overlap_para = current_chunk[-1]
+                        current_chunk = [overlap_para]
+                        current_len = len(overlap_para)
+                    else:
+                        current_chunk = []
+                        current_len = 0
+
+                current_chunk.append(para)
+                current_len += para_len
+
+            if current_chunk:
+                chunk_index += 1
+                chunks.append(self._make_chunk_record(
+                    text="\n\n".join(current_chunk),
+                    document_id=document_id,
+                    chunk_index=chunk_index,
+                    pages=pages,
+                    page_number=page.page_number,
+                ))
+
+        return chunks
+
     def _make_chunk_record(
         self,
         text: str,
         document_id: str,
         chunk_index: int,
         pages: list,
+        page_number: int | None = None,
     ) -> ChunkRecord:
         """构建单个 ChunkRecord，推断页码和标题。"""
         chunk_id = self._generate_chunk_id(document_id, chunk_index, text)
 
-        page_number = self._find_page_number(text, pages)
+        page_number = page_number or self._find_page_number(text, pages)
         title = self._extract_title(text)
 
         return ChunkRecord(
@@ -225,11 +287,12 @@ class DocumentProcessor:
     @staticmethod
     def _find_page_number(chunk_text: str, pages: list) -> int | None:
         """根据 chunk 文本内容匹配页码。简单策略：在哪个页中找到就返回哪个页码。"""
+        normalized_chunk = re.sub(r"\s+", "", chunk_text)
         for page in pages:
-            if chunk_text[:100] in page.text or chunk_text[-100:] in page.text:
+            normalized_page = re.sub(r"\s+", "", page.text)
+            if normalized_chunk[:80] in normalized_page or normalized_chunk[-80:] in normalized_page:
                 return page.page_number
-        # 默认返回第一页
-        return pages[0].page_number if pages else None
+        return None
 
     @staticmethod
     def _extract_title(text: str) -> str | None:
