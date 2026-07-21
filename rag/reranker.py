@@ -1,12 +1,10 @@
-"""候选块重排 —— 基于关键词重叠率和位置加权的简单重排算法。
+"""候选块重排 —— 融合语义分数 + 关键词匹配的混合重排。
 
-V1 策略（无需额外 LLM 调用）：
-1. 计算查询与 chunk 的关键词重叠率
-2. 位置加权（靠前的 chunk 略微加权）
-3. 归一化排序
-4. 返回 top_k
-
-V2 可升级为 LLM-based 打分。
+策略（无需 LLM 调用）：
+1. 保留 Chroma 的语义相似度分数（主要信号）
+2. 关键词重叠率作为加分项（次要信号）
+3. 最终分数 = 0.7 * chroma_score + 0.3 * keyword_overlap
+4. 不丢弃任何候选块（rerank_top_k 仅用于最终给 LLM 的上限）
 """
 
 import logging
@@ -19,7 +17,7 @@ logger = logging.getLogger("rag.reranker")
 
 
 class Reranker:
-    """基于关键词重叠率的重排器。"""
+    """融合语义相似度与关键词匹配的重排器。"""
 
     def __init__(self, settings: Settings | None = None):
         self.settings = settings or get_settings()
@@ -45,21 +43,15 @@ class Reranker:
 
         if len(chunks) <= self.top_k:
             logger.info("Reranking: %d chunks (≤ top_k=%d), returning as-is", len(chunks), self.top_k)
-            # 但仍需要计算分数
             for chunk in chunks:
                 chunk.score = self._compute_score(query, chunk)
             return sorted(chunks, key=lambda c: c.score, reverse=True)
 
-        # 提取查询关键词
-        query_keywords = self._tokenize(query)
-
-        # 计算每个 chunk 的分数
-        total = len(chunks)
-        for idx, chunk in enumerate(chunks):
-            chunk_keywords = self._tokenize(chunk.content)
-            overlap_score = self._keyword_overlap(query_keywords, chunk_keywords)
-            position_bonus = 1.0 - (idx / total) * 0.1  # 靠前略加权 (0.9-1.0)
-            chunk.score = overlap_score * position_bonus
+        # 计算每个 chunk 的混合分数
+        for chunk in chunks:
+            keyword_score = self._keyword_overlap(query, chunk.content)
+            # 融合：70% 语义分数 + 30% 关键词重叠
+            chunk.score = 0.7 * chunk.score + 0.3 * keyword_score
 
         # 按分数降序排列
         sorted_chunks = sorted(chunks, key=lambda c: c.score, reverse=True)
@@ -75,23 +67,21 @@ class Reranker:
 
     # ── 评分算法 ────────────────────────────────────────────
 
-    @staticmethod
-    def _keyword_overlap(
-        query_keywords: set[str],
-        chunk_keywords: set[str],
-    ) -> float:
-        """计算关键词 Jaccard 相似度。"""
-        if not query_keywords:
+    @classmethod
+    def _keyword_overlap(cls, query: str, content: str) -> float:
+        """计算查询与内容的关键词 Jaccard 相似度。"""
+        qk = cls._tokenize(query)
+        ck = cls._tokenize(content)
+        if not qk:
             return 0.0
-        intersection = query_keywords & chunk_keywords
-        return len(intersection) / len(query_keywords)
+        intersection = qk & ck
+        return len(intersection) / len(qk)
 
-    @staticmethod
-    def _compute_score(query: str, chunk: RetrievedChunk) -> float:
-        """计算单个 chunk 的分数。"""
-        qk = Reranker._tokenize(query)
-        ck = Reranker._tokenize(chunk.content)
-        return Reranker._keyword_overlap(qk, ck)
+    @classmethod
+    def _compute_score(cls, query: str, chunk: RetrievedChunk) -> float:
+        """计算单个 chunk 的混合分数。"""
+        keyword_score = cls._keyword_overlap(query, chunk.content)
+        return 0.7 * chunk.score + 0.3 * keyword_score
 
     @staticmethod
     def _tokenize(text: str) -> set[str]:

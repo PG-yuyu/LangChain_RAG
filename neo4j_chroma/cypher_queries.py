@@ -172,3 +172,71 @@ WITH collect(n) AS nodes, count(n) AS deleted_count
 FOREACH (node IN nodes | DETACH DELETE node)
 RETURN deleted_count
 """
+
+# ══════════════════════════════════════════════════════════════
+# 批量写入（UNWIND）—— 大幅减少独立查询次数
+# ══════════════════════════════════════════════════════════════
+
+BATCH_UPSERT_PARENT_CHUNKS = """
+UNWIND $parents AS p
+MATCH (d:Document {document_id: p.document_id})
+MERGE (chunk:ParentChunk {parent_id: p.parent_id})
+SET chunk.document_id = p.document_id,
+    chunk.content = p.content,
+    chunk.chunk_index = p.chunk_index,
+    chunk.vector_id = p.vector_id,
+    chunk.metadata = p.metadata
+MERGE (d)-[:HAS_PARENT_CHUNK]->(chunk)
+RETURN chunk.parent_id AS parent_id
+"""
+
+BATCH_UPSERT_CHILD_CHUNKS = """
+UNWIND $children AS c
+MATCH (p:ParentChunk {parent_id: c.parent_id})
+MERGE (chunk:ChildChunk {child_id: c.child_id})
+SET chunk.document_id = c.document_id,
+    chunk.parent_id = c.parent_id,
+    chunk.content = c.content,
+    chunk.chunk_index = c.chunk_index,
+    chunk.vector_id = c.vector_id,
+    chunk.metadata = c.metadata
+MERGE (p)-[:HAS_CHILD_CHUNK]->(chunk)
+RETURN chunk.child_id AS child_id
+"""
+
+BATCH_CREATE_PARENT_NEXT_TO = """
+UNWIND $pairs AS pair
+MATCH (left:ParentChunk {parent_id: pair.left_id})
+MATCH (right:ParentChunk {parent_id: pair.right_id})
+MERGE (left)-[:NEXT_TO]->(right)
+"""
+
+BATCH_CREATE_CHILD_NEXT_TO = """
+UNWIND $pairs AS pair
+MATCH (left:ChildChunk {child_id: pair.left_id})
+MATCH (right:ChildChunk {child_id: pair.right_id})
+MERGE (left)-[:NEXT_TO]->(right)
+"""
+
+BATCH_MERGE_ENTITIES = """
+UNWIND $entities AS e
+MERGE (entity:Entity {entity_id: e.entity_id})
+SET entity.name = e.name,
+    entity.entity_type = e.entity_type,
+    entity.aliases = e.aliases,
+    entity.knowledge_base_id = e.knowledge_base_id,
+    entity.document_id = e.document_id
+RETURN entity.entity_id AS entity_id
+"""
+
+BATCH_MERGE_RELATIONS = """
+UNWIND $relations AS r
+MATCH (src:Entity {entity_id: r.source_entity_id})
+MATCH (tgt:Entity {entity_id: r.target_entity_id})
+MERGE (src)-[rel:RELATED {relation_id: r.relation_id}]->(tgt)
+SET rel.relation_type = r.relation_type,
+    rel.source_chunk_id = r.source_chunk_id,
+    rel.confidence = r.confidence,
+    rel.knowledge_base_id = r.knowledge_base_id
+RETURN rel.relation_id AS relation_id
+"""

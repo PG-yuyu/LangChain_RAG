@@ -66,7 +66,7 @@ class DatabaseRepository:
         parent_chunks: Sequence[ParentChunkNode | Mapping[str, Any]],
         child_chunks: Sequence[ChildChunkNode | Mapping[str, Any]],
     ) -> DocumentNode:
-        """Idempotently save one document and its parent-child chunks."""
+        """Idempotently save one document and its parent-child chunks (batch writes)."""
 
         doc = self._coerce_document(document, chunk_count=len(parent_chunks))
         parents = [self._coerce_parent_chunk(chunk, doc.document_id) for chunk in parent_chunks]
@@ -74,21 +74,30 @@ class DatabaseRepository:
 
         self.delete_document(doc.document_id)
         self.neo4j_client.execute(queries.UPSERT_DOCUMENT, self._document_params(doc))
-        for parent in parents:
-            self.neo4j_client.execute(queries.UPSERT_PARENT_CHUNK, self._parent_params(parent))
-        for child in children:
-            self.neo4j_client.execute(queries.UPSERT_CHILD_CHUNK, self._child_params(child))
 
-        for left, right in self._adjacent_pairs(parents):
-            self.neo4j_client.execute(
-                queries.CREATE_PARENT_NEXT_TO,
-                {"left_parent_id": left.parent_id, "right_parent_id": right.parent_id},
-            )
-        for left, right in self._adjacent_pairs(children):
-            self.neo4j_client.execute(
-                queries.CREATE_CHILD_NEXT_TO,
-                {"left_child_id": left.child_id, "right_child_id": right.child_id},
-            )
+        # Batch write parent chunks
+        if parents:
+            self.neo4j_client.execute(queries.BATCH_UPSERT_PARENT_CHUNKS, {
+                "parents": [self._parent_params(p) for p in parents],
+            })
+        # Batch write child chunks
+        if children:
+            self.neo4j_client.execute(queries.BATCH_UPSERT_CHILD_CHUNKS, {
+                "children": [self._child_params(c) for c in children],
+            })
+        # Batch write NEXT_TO relations
+        parent_pairs = self._adjacent_pairs(parents)
+        if parent_pairs:
+            self.neo4j_client.execute(queries.BATCH_CREATE_PARENT_NEXT_TO, {
+                "pairs": [{"left_id": left.parent_id, "right_id": right.parent_id}
+                          for left, right in parent_pairs],
+            })
+        child_pairs = self._adjacent_pairs(children)
+        if child_pairs:
+            self.neo4j_client.execute(queries.BATCH_CREATE_CHILD_NEXT_TO, {
+                "pairs": [{"left_id": left.child_id, "right_id": right.child_id}
+                          for left, right in child_pairs],
+            })
 
         return doc
 
