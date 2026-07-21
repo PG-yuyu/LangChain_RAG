@@ -164,9 +164,11 @@ _SYSTEM_ANSWER = """你是一个智能文档检索助手，基于提供的文档
 1. 只基于提供的参考内容回答，不要编造信息
 2. 如果参考内容不足以回答问题，明确说明"根据现有资料，未能找到相关信息"
 3. 用中文回答，简洁准确、条理清晰
-4. 在回答中标注引用来源，使用 [1] [2] 等编号
-5. 如果涉及实体关系，明确指出关系的来源文档
-6. 对于 graph_query 意图，重点说明实体间的关系路径"""
+4. 正文中不要使用 [1]、[2] 这类引用编号
+5. 不要在每句话或每个分点后反复添加来源标记
+6. 不要在回答末尾添加"来源："或文件名说明
+7. 如果涉及实体关系，只说明关系内容，不要额外列出来源文档
+8. 对于 graph_query 意图，重点说明实体间的关系路径"""
 
 
 def build_answer_prompt(
@@ -183,10 +185,20 @@ def build_answer_prompt(
     # 文档块上下文
     if chunks:
         context_parts.append("## 参考文档内容：")
-        for i, chunk in enumerate(chunks, 1):
+        document_names: dict[str, str] = {}
+        for chunk in chunks:
+            if chunk.document_id not in document_names:
+                document_names[chunk.document_id] = chunk.filename
+
+        context_parts.append("### 来源文件：")
+        for filename in document_names.values():
+            context_parts.append(f"- {filename}")
+
+        context_parts.append("\n### 检索到的相关片段：")
+        for chunk in chunks:
             page_info = f"第{chunk.page_number}页" if chunk.page_number else "未知页"
             context_parts.append(
-                f"[{i}] 文档：{chunk.filename} ({page_info})\n{chunk.content}"
+                f"文档：{chunk.filename} ({page_info})\n{chunk.content}"
             )
 
     # 知识图谱上下文
@@ -214,7 +226,7 @@ def build_answer_prompt(
         f"（改写后：{rewritten_query}）\n\n"
         f"参考信息：\n{context}\n"
         f"{intent_guidance}\n"
-        f"请基于以上参考信息回答问题，并标注引用来源。"
+        f"请基于以上参考信息回答问题。不要使用 [1]、[2] 这类引用编号，也不要在末尾添加来源文件名。"
     )
 
     return [

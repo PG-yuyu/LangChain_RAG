@@ -289,8 +289,12 @@ button:disabled {
 }
 
 .history-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 28px;
+  gap: 8px;
+  align-items: center;
   width: 100%;
-  padding: 10px 12px;
+  padding: 8px 8px 8px 12px;
   border: 1px solid #dbe7ff;
   border-radius: 10px;
   background: #fff;
@@ -301,6 +305,15 @@ button:disabled {
 .history-item.active {
   border-color: #5365f5;
   background: #f1f5ff;
+}
+
+.history-open {
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
 }
 
 .history-item strong {
@@ -394,6 +407,7 @@ button:disabled {
 .file-item {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 12px;
   width: 100%;
   padding: 12px 14px;
@@ -408,6 +422,35 @@ button:disabled {
 .file-item.active {
   border-color: #5365f5;
   background: #f1f5ff;
+}
+
+.file-select {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  align-items: center;
+  gap: 12px;
+  cursor: pointer;
+}
+
+.delete-btn {
+  display: grid;
+  width: 26px;
+  height: 26px;
+  flex: 0 0 26px;
+  place-items: center;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: #8a98b3;
+  font-size: 20px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.delete-btn:hover {
+  background: #ffecef;
+  color: #d94b5f;
 }
 
 .checkbox {
@@ -438,6 +481,7 @@ button:disabled {
 }
 
 .all-files {
+  justify-content: flex-start;
   font-weight: 850;
 }
 

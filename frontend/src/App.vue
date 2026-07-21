@@ -241,7 +241,7 @@ function renderMarkdown(text) {
 
   for (const rawLine of lines) {
     const line = rawLine.trimEnd()
-    const orderedMatch = line.match(/^\s*\d+\.\s+(.+)$/)
+    const orderedMatch = line.match(/^\s*(\d+)\.\s+(.+)$/)
     const unorderedMatch = line.match(/^\s*[-*]\s+(.+)$/)
 
     if (line.trim().startsWith('```')) {
@@ -267,10 +267,11 @@ function renderMarkdown(text) {
         closeList()
       }
       if (!listType) {
-        html.push(`<${nextType}>`)
+        const start = orderedMatch ? ` start="${orderedMatch[1]}"` : ''
+        html.push(`<${nextType}${start}>`)
         listType = nextType
       }
-      html.push(`<li>${formatInlineMarkdown((orderedMatch || unorderedMatch)[1])}</li>`)
+      html.push(`<li>${formatInlineMarkdown(orderedMatch ? orderedMatch[2] : unorderedMatch[1])}</li>`)
       continue
     }
 
