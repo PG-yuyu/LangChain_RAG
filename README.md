@@ -54,6 +54,13 @@
 ```text
 project/
 ├── app.py                      # FastAPI 主入口
+├── backend/                    # 成员1：FastAPI 后端入口与兼容接口
+│   ├── main.py                 # 后端 API 服务（健康检查、文档上传、问答、流式输出）
+│   ├── models.py               # 对 contracts.models 的兼容导出
+│   ├── services.py             # 对 RAG 后端服务的兼容封装
+│   ├── requirements.txt        # 后端独立依赖说明
+│   └── __init__.py             # 后端模块初始化
+│
 ├── contracts/                  # 共享接口层（三人共同维护）
 │   ├── models.py               # 数据模型（Pydantic）
 │   ├── backend_service.py      # 前端调用的统一业务接口
@@ -126,7 +133,7 @@ project/
 
 | 成员 | 核心角色 | 负责模块 | 工作量 |
 |---|---|---|---|
-| **成员1** | Gradio/Vue 前端 + 系统集成 | `frontend/`、`app.py`、集成测试 | 30% |
+| **成员1** | Vue 前端 + FastAPI 后端入口 + 系统集成 | `frontend/`、`backend/`、`app.py`、集成测试 | 30% |
 | **成员2** | Neo4j + Chroma 数据库 | `neo4j_chroma/`、`scripts/`、数据库测试 | 35% |
 | **成员3** | RAG / Agent / 大模型 | `rag/`、实体抽取、意图识别、Prompt | 35% |
 
