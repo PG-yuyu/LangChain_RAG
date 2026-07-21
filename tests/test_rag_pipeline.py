@@ -35,7 +35,7 @@ class TestRAGPipeline(unittest.TestCase):
         self.settings = Settings(
             chunk_size=300,
             chunk_overlap=50,
-            rerank_top_k=3,
+            rerank_top_k=10,
             llm_api_key="test-key",
             llm_base_url="https://api.test.com",
             llm_model="test-model",

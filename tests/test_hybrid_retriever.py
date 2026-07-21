@@ -95,7 +95,8 @@ class HybridRetrieverTest(unittest.TestCase):
         result = retriever.retrieve("graph storage", document_ids=["doc-1"], top_k=3)
 
         self.assertEqual(vector_store.document_ids, ["doc-1"])
-        self.assertEqual(vector_store.top_k, 3)
+        # Pool size = max(top_k * 5, 30) = max(15, 30) = 30
+        self.assertEqual(vector_store.top_k, 30)
         self.assertEqual(vector_store.parent_ids, ["p-1"])
         self.assertEqual(repository.loaded_parent_ids, ["p-1"])
         self.assertEqual(repository.loaded_child_ids, ["c-1"])

@@ -38,11 +38,11 @@ class Settings:
     chunk_overlap: int = 50
 
     # ── Retrieval Defaults ──
-    default_top_k: int = 5
+    default_top_k: int = 10
     default_max_hops: int = 2
 
     # ── Reranking ──
-    rerank_top_k: int = 3
+    rerank_top_k: int = 10
 
     # ── Logging ──
     log_level: str = "INFO"
@@ -60,9 +60,9 @@ class Settings:
             llm_timeout=int(os.getenv("LLM_TIMEOUT", "60")),
             chunk_size=int(os.getenv("RAG_CHUNK_SIZE", "500")),
             chunk_overlap=int(os.getenv("RAG_CHUNK_OVERLAP", "50")),
-            default_top_k=int(os.getenv("RAG_TOP_K", "5")),
+            default_top_k=int(os.getenv("RAG_TOP_K", "10")),
             default_max_hops=int(os.getenv("RAG_DEFAULT_MAX_HOPS", "2")),
-            rerank_top_k=int(os.getenv("RAG_RERANK_TOP_K", "3")),
+            rerank_top_k=int(os.getenv("RAG_RERANK_TOP_K", "10")),
             log_level=os.getenv("RAG_LOG_LEVEL", "INFO"),
         )
 

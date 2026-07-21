@@ -18,7 +18,7 @@ class QueryRequestModel(BaseModel):
     session_id: str = Field(..., description="当前对话会话 ID")
     knowledge_base_id: str = Field(..., description="知识库 ID")
     selected_document_ids: list[str] = Field(default_factory=list, description="用户指定的文档范围")
-    top_k: int = Field(default=5, ge=1, le=50, description="最多返回多少个证据块")
+    top_k: int = Field(default=10, ge=1, le=50, description="最多返回多少个证据块")
     max_hops: int = Field(default=2, ge=1, le=5, description="图检索最多查询几跳")
     enable_query_rewrite: bool = Field(default=True, description="是否启用问题改写")
     trace_id: str | None = Field(default=None, description="日志追踪编号")

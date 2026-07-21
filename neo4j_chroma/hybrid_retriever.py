@@ -1,12 +1,33 @@
-"""Retrieval loop that combines Chroma recall and Neo4j source metadata."""
+"""Retrieval loop that combines Chroma recall and Neo4j source metadata.
+
+Ensures document diversity by querying a larger candidate pool and then
+distributing the top_k slots across different documents.
+"""
 
 from __future__ import annotations
 
+from collections import OrderedDict
 from dataclasses import dataclass, field
+import logging
 from typing import Any, Sequence
 
 from neo4j_chroma.database_repository import ChildChunkNode, DatabaseRepository, ParentChunkNode
 from neo4j_chroma.vector_store import VectorDocument, VectorSearchResult, VectorStore
+
+logger = logging.getLogger("neo4j_chroma.hybrid_retriever")
+
+# ── Constants ────────────────────────────────────────────────────
+
+# Minimum child chunks to retrieve per document in multi-doc mode.
+# A value of 3 ensures each document contributes enough candidate text
+# for meaningful cross-document answers, even when many documents share
+# the top_k budget.
+_MIN_CHUNKS_PER_DOC = 3
+
+# Maximum documents to auto-discover and query in multi-doc mode when
+# the caller did not specify document_ids.  Beyond this limit we fall
+# back to a single enlarged query to avoid excessive Chroma queries.
+_MAX_AUTO_DISCOVER_DOCS = 20
 
 
 @dataclass(slots=True)
@@ -62,6 +83,131 @@ class HybridRetriever:
         if self.database_repository is not None:
             self.database_repository.close()
 
+    @staticmethod
+    def _pool_size(top_k: int) -> int:
+        """Return a larger candidate pool so per-document diversity has room to work."""
+        return max(top_k * 5, 30)
+
+    def _auto_discover_document_ids(self) -> list[str]:
+        """Query Neo4j for all active documents, returning their IDs.
+
+        Returns an empty list on error or when no documents exist.
+        """
+        if self.database_repository is None:
+            return []
+        try:
+            docs = self.database_repository.list_documents()
+            ids = [d.document_id for d in docs if d.is_active]
+            if ids:
+                logger.info("Auto-discovered %d documents for multi-doc retrieval", len(ids))
+            return ids
+        except Exception as exc:
+            logger.warning("Failed to auto-discover documents: %s", exc)
+            return []
+
+    def _retrieve_multi_document(
+        self,
+        query: str,
+        document_ids: Sequence[str],
+        top_k: int,
+    ) -> list[VectorSearchResult]:
+        """Query each selected document separately so every document gets a fair chance.
+
+        When ``document_ids`` contains multiple documents, a single vector query
+        often returns chunks from only the document whose content is semantically
+        closest to the *whole* query — other documents get squeezed out even if
+        they answer a different *part* of the query.  By querying per document
+        and then interleaving, we guarantee coverage.
+
+        Each document is queried for at least ``_MIN_CHUNKS_PER_DOC`` child chunks
+        so that even with many documents the per-doc context is meaningful.
+        """
+        ids = list(document_ids)
+        if not ids:
+            return []
+
+        per_doc_k = max(_MIN_CHUNKS_PER_DOC, top_k // len(ids))
+        all_results: list[VectorSearchResult] = []
+
+        for doc_id in ids:
+            doc_results = self.vector_store.query_child_chunks(
+                query,
+                top_k=per_doc_k,
+                document_ids=[doc_id],
+            )
+            logger.info(
+                "Per-doc query: doc=%s, requested=%d, got=%d",
+                doc_id, per_doc_k, len(doc_results),
+            )
+            all_results.extend(doc_results)
+
+        logger.info(
+            "Multi-doc merge: total=%d, unique_docs=%d, top_k=%d",
+            len(all_results),
+            len({r.metadata.get("document_id", "?") for r in all_results}),
+            top_k,
+        )
+
+        # Sort by score descending and take top_k
+        all_results.sort(key=lambda r: r.score, reverse=True)
+        return self._ensure_document_diversity(all_results, top_k)
+
+    @staticmethod
+    def _ensure_document_diversity(
+        results: list[VectorSearchResult],
+        target_k: int,
+    ) -> list[VectorSearchResult]:
+        """Redistribute results across documents so no single document monopolises.
+
+        Groups results by ``document_id``, gives each document a fair share of
+        the ``target_k`` slots (at least 1), and fills remaining slots with the
+        highest-scoring leftovers.
+        """
+        if not results:
+            return results
+
+        # Group by document_id
+        doc_groups: OrderedDict[str, list[VectorSearchResult]] = OrderedDict()
+        for r in results:
+            doc_id = str(r.metadata.get("document_id", "unknown"))
+            doc_groups.setdefault(doc_id, []).append(r)
+
+        # Single document — just return top target_k
+        if len(doc_groups) <= 1:
+            return sorted(results, key=lambda r: r.score, reverse=True)[:target_k]
+
+        # Sort within each group once
+        for results_list in doc_groups.values():
+            results_list.sort(key=lambda r: r.score, reverse=True)
+
+        # Distribute slots: at least 1 per document, fill rest by score
+        num_docs = len(doc_groups)
+        guaranteed = max(1, target_k // num_docs)
+
+        selected: list[VectorSearchResult] = []
+        selected_set: set[str] = set()  # track by vector_id to avoid duplicates
+
+        # First pass: take top `guaranteed` from each document
+        for doc_results in doc_groups.values():
+            for r in doc_results[:guaranteed]:
+                if r.vector_id not in selected_set:
+                    selected_set.add(r.vector_id)
+                    selected.append(r)
+
+        # Second pass: if still room, add next-best from any document
+        if len(selected) < target_k:
+            all_remaining = sorted(
+                [r for r in results if r.vector_id not in selected_set],
+                key=lambda r: r.score,
+                reverse=True,
+            )
+            for r in all_remaining[: target_k - len(selected)]:
+                selected_set.add(r.vector_id)
+                selected.append(r)
+
+        selected.sort(key=lambda r: r.score, reverse=True)
+        return selected[:target_k]
+
     def retrieve(
         self,
         query: str,
@@ -70,11 +216,47 @@ class HybridRetriever:
         entity_names: Sequence[str] | None = None,
         max_hops: int = 2,
     ) -> RetrievalOutput:
-        child_results = self.vector_store.query_child_chunks(
-            query,
-            top_k=top_k,
-            document_ids=document_ids,
-        )
+        # ── Resolve document IDs ──────────────────────────────────────
+        # When the caller didn't specify which documents to search, we
+        # auto-discover all active documents from Neo4j so that every
+        # document gets a fair chance via per-doc querying, avoiding the
+        # scenario where a single vector query returns results dominated
+        # by only one document.
+        ids = list(document_ids) if document_ids else []
+        if not ids and self.database_repository is not None:
+            ids = self._auto_discover_document_ids()
+            if len(ids) > _MAX_AUTO_DISCOVER_DOCS:
+                logger.info(
+                    "Too many auto-discovered docs (%d > %d), falling back to single query",
+                    len(ids), _MAX_AUTO_DISCOVER_DOCS,
+                )
+                ids = []  # fall through to the single-query path below
+
+        # ── Per-document querying when multiple documents are known ───
+        # Each selected document is queried separately so that every doc
+        # contributes to the result, even if the query embedding is skewed
+        # toward one document's topic.
+        if len(ids) > 1:
+            logger.info(
+                "Multi-doc mode: %d docs, top_k=%d",
+                len(ids), top_k,
+            )
+            child_results = self._retrieve_multi_document(query, ids, top_k)
+        else:
+            # Single document, or auto-discovery found nothing / too many:
+            # query a larger pool, then ensure diversity.
+            pool_k = self._pool_size(top_k)
+            logger.info(
+                "Single/doc mode: ids=%s, pool_k=%d, top_k=%d",
+                ids, pool_k, top_k,
+            )
+            child_results = self.vector_store.query_child_chunks(
+                query,
+                top_k=pool_k,
+                document_ids=ids or None,
+            )
+            child_results = self._ensure_document_diversity(child_results, top_k)
+
         parent_ids = _unique(
             result.metadata.get("parent_id")
             for result in child_results

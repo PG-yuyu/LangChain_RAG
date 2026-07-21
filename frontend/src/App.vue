@@ -159,7 +159,7 @@ async function sendQuestion() {
         session_id: sessionId,
         knowledge_base_id: knowledgeBaseId.value,
         selected_document_ids: selectedDocumentIds.value,
-        top_k: 5,
+        top_k: 10,
         max_hops: 2,
         enable_query_rewrite: true
       },

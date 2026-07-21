@@ -62,7 +62,7 @@ class QueryRequest(BaseModel):
     session_id: str
     knowledge_base_id: str = "kb_demo"
     selected_document_ids: list[str] = Field(default_factory=list)
-    top_k: int = 5
+    top_k: int = 10
     max_hops: int = 2
     enable_query_rewrite: bool = True
     trace_id: str | None = None
