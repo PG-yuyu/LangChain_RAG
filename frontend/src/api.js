@@ -5,12 +5,12 @@ export async function healthCheck() {
   return readJson(response)
 }
 
-export async function listDocuments(knowledgeBaseId = 'kb_demo') {
+export async function listDocuments(knowledgeBaseId) {
   const response = await fetch(`${API_BASE}/api/documents?knowledge_base_id=${encodeURIComponent(knowledgeBaseId)}`)
   return readJson(response)
 }
 
-export async function uploadDocument(file, knowledgeBaseId = 'kb_demo') {
+export async function uploadDocument(file, knowledgeBaseId) {
   const formData = new FormData()
   formData.append('file', file)
   formData.append('knowledge_base_id', knowledgeBaseId)
@@ -19,6 +19,16 @@ export async function uploadDocument(file, knowledgeBaseId = 'kb_demo') {
     method: 'POST',
     body: formData
   })
+  return readJson(response)
+}
+
+export async function deleteDocument(documentId, knowledgeBaseId) {
+  const response = await fetch(
+    `${API_BASE}/api/documents/${encodeURIComponent(documentId)}?knowledge_base_id=${encodeURIComponent(knowledgeBaseId)}`,
+    {
+      method: 'DELETE'
+    }
+  )
   return readJson(response)
 }
 

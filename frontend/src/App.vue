@@ -1,8 +1,7 @@
 <script setup>
 import { computed, nextTick, onMounted, reactive, ref } from 'vue'
-import { healthCheck, listDocuments, streamQuestion, uploadDocument } from './api'
+import { deleteDocument, healthCheck, listDocuments, streamQuestion, uploadDocument } from './api'
 
-const knowledgeBaseId = 'kb_demo'
 const sessionId = `session_${Math.random().toString(16).slice(2, 14)}`
 
 const authMode = ref('login')
@@ -33,13 +32,24 @@ const activeConversationId = ref('')
 const selectedCount = computed(() => selectedDocumentIds.value.length)
 const isAuthed = computed(() => Boolean(currentUser.value))
 const historyKey = computed(() => `rag_conversations_${currentUser.value || 'guest'}`)
+const knowledgeBaseId = computed(() => buildUserKnowledgeBaseId(currentUser.value))
+const knowledgeBaseLabel = computed(() => `${currentUser.value} 的知识库`)
 
 onMounted(async () => {
-  await Promise.all([refreshHealth(), refreshDocuments()])
+  await refreshHealth()
   if (currentUser.value) {
+    await refreshDocuments()
     loadConversations()
   }
 })
+
+function buildUserKnowledgeBaseId(username) {
+  const source = username.trim() || 'guest'
+  const encoded = Array.from(source)
+    .map((char) => char.charCodeAt(0).toString(16))
+    .join('')
+  return `kb_member1_${encoded}`
+}
 
 async function refreshHealth() {
   try {
@@ -51,7 +61,16 @@ async function refreshHealth() {
 }
 
 async function refreshDocuments() {
-  documents.value = await listDocuments(knowledgeBaseId)
+  if (!currentUser.value) {
+    documents.value = []
+    selectedDocumentIds.value = []
+    return
+  }
+
+  documents.value = await listDocuments(knowledgeBaseId.value)
+  selectedDocumentIds.value = selectedDocumentIds.value.filter((id) =>
+    documents.value.some((document) => document.document_id === id)
+  )
 }
 
 async function onFileChange(event) {
@@ -66,7 +85,7 @@ async function onFileChange(event) {
   uploadStatus.value = '正在上传并处理文档...'
   try {
     for (const file of files) {
-      const document = await uploadDocument(file, knowledgeBaseId)
+      const document = await uploadDocument(file, knowledgeBaseId.value)
       if (!selectedDocumentIds.value.includes(document.document_id)) {
         selectedDocumentIds.value = [...selectedDocumentIds.value, document.document_id]
       }
@@ -100,6 +119,18 @@ function toggleAllDocuments() {
   }
 }
 
+async function removeDocument(documentId) {
+  const document = documents.value.find((item) => item.document_id === documentId)
+  try {
+    await deleteDocument(documentId, knowledgeBaseId.value)
+    documents.value = documents.value.filter((item) => item.document_id !== documentId)
+    selectedDocumentIds.value = selectedDocumentIds.value.filter((id) => id !== documentId)
+    uploadStatus.value = document ? `已删除文件：${document.filename}` : '文件已删除。'
+  } catch (error) {
+    uploadStatus.value = `删除失败：${error.message}`
+  }
+}
+
 async function sendQuestion() {
   const text = question.value.trim()
   if (!text || isAsking.value) return
@@ -118,7 +149,7 @@ async function sendQuestion() {
       {
         query: text,
         session_id: sessionId,
-        knowledge_base_id: knowledgeBaseId,
+        knowledge_base_id: knowledgeBaseId.value,
         selected_document_ids: selectedDocumentIds.value,
         top_k: 5,
         max_hops: 2,
@@ -288,7 +319,7 @@ function switchAuthMode(mode) {
   authMessage.value = ''
 }
 
-function submitAuth() {
+async function submitAuth() {
   const username = authForm.value.username.trim()
   const password = authForm.value.password.trim()
 
@@ -313,6 +344,8 @@ function submitAuth() {
     localStorage.setItem('rag_users', JSON.stringify(users))
     localStorage.setItem('rag_current_user', username)
     currentUser.value = username
+    selectedDocumentIds.value = []
+    await refreshDocuments()
     loadConversations()
     authMessage.value = ''
     return
@@ -325,6 +358,8 @@ function submitAuth() {
 
   localStorage.setItem('rag_current_user', username)
   currentUser.value = username
+  selectedDocumentIds.value = []
+  await refreshDocuments()
   loadConversations()
   authMessage.value = ''
 }
@@ -334,6 +369,9 @@ function logout() {
   currentUser.value = ''
   conversations.value = []
   activeConversationId.value = ''
+  documents.value = []
+  selectedDocumentIds.value = []
+  uploadStatus.value = '点击文件可加入本次 RAG 知识库。'
   authForm.value.password = ''
 }
 
@@ -377,6 +415,29 @@ function openConversation(conversationId) {
   if (!conversation) return
   activeConversationId.value = conversation.id
   messages.value = conversation.messages.map((item) => ({ ...item }))
+}
+
+function removeConversation(conversationId) {
+  const nextConversations = conversations.value.filter((item) => item.id !== conversationId)
+  conversations.value = nextConversations
+
+  if (activeConversationId.value === conversationId) {
+    if (nextConversations.length) {
+      openConversation(nextConversations[0].id)
+    } else {
+      const conversation = {
+        id: `conv_${Date.now()}`,
+        title: '新建对话',
+        updatedAt: new Date().toLocaleString(),
+        messages: defaultMessages()
+      }
+      conversations.value = [conversation]
+      activeConversationId.value = conversation.id
+      messages.value = conversation.messages.map((item) => ({ ...item }))
+    }
+  }
+
+  persistConversations()
 }
 
 function saveActiveConversation(latestQuestion = '') {
@@ -452,16 +513,25 @@ function saveActiveConversation(latestQuestion = '') {
           <div class="dashed-box history-box">
             <div class="history-title">对话历史</div>
             <div class="history-list">
-              <button
+              <div
                 v-for="conversation in conversations"
                 :key="conversation.id"
                 class="history-item"
                 :class="{ active: activeConversationId === conversation.id }"
-                @click="openConversation(conversation.id)"
               >
-                <strong>{{ conversation.title }}</strong>
-                <span>{{ conversation.updatedAt }}</span>
-              </button>
+                <button class="history-open" @click="openConversation(conversation.id)">
+                  <strong>{{ conversation.title }}</strong>
+                  <span>{{ conversation.updatedAt }}</span>
+                </button>
+                <button
+                  class="delete-btn"
+                  title="删除对话"
+                  aria-label="删除对话"
+                  @click.stop="removeConversation(conversation.id)"
+                >
+                  ×
+                </button>
+              </div>
             </div>
           </div>
 
@@ -485,18 +555,30 @@ function saveActiveConversation(latestQuestion = '') {
                   <strong>所有文件</strong>
                 </span>
               </button>
-              <button
+              <div
                 v-for="doc in documents"
                 :key="doc.document_id"
                 class="file-item"
                 :class="{ active: selectedDocumentIds.includes(doc.document_id) }"
-                @click="toggleDocument(doc.document_id)"
               >
-                <span class="checkbox" :class="{ checked: selectedDocumentIds.includes(doc.document_id) }"></span>
-            <span class="file-meta">
-              <strong>{{ doc.filename }}</strong>
-            </span>
-          </button>
+                <span
+                  class="file-select"
+                  @click="toggleDocument(doc.document_id)"
+                >
+                  <span class="checkbox" :class="{ checked: selectedDocumentIds.includes(doc.document_id) }"></span>
+                  <span class="file-meta">
+                    <strong>{{ doc.filename }}</strong>
+                  </span>
+                </span>
+                <button
+                  class="delete-btn"
+                  title="删除文件"
+                  aria-label="删除文件"
+                  @click.stop="removeDocument(doc.document_id)"
+                >
+                  ×
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -521,7 +603,11 @@ function saveActiveConversation(latestQuestion = '') {
           </div>
           <div class="info-card">
             <span>知识库</span>
-            <strong>{{ knowledgeBaseId }}</strong>
+            <strong>{{ knowledgeBaseLabel }}</strong>
+          </div>
+          <div class="info-card">
+            <span>数据库</span>
+            <strong>Chroma + Neo4j</strong>
           </div>
           <div class="info-card status-card">
             <span>运行状态</span>
