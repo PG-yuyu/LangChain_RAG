@@ -9,6 +9,7 @@
 
 import logging
 import re
+from collections import OrderedDict
 
 from contracts.models import RetrievedChunk
 from rag.config import Settings, get_settings
@@ -45,7 +46,8 @@ class Reranker:
             logger.info("Reranking: %d chunks (≤ top_k=%d), returning as-is", len(chunks), self.top_k)
             for chunk in chunks:
                 chunk.score = self._compute_score(query, chunk)
-            return sorted(chunks, key=lambda c: c.score, reverse=True)
+            sorted_chunks = sorted(chunks, key=lambda c: c.score, reverse=True)
+            return self._keep_document_diversity(sorted_chunks, min(self.top_k, len(sorted_chunks)))
 
         # 计算每个 chunk 的混合分数
         for chunk in chunks:
@@ -55,7 +57,7 @@ class Reranker:
 
         # 按分数降序排列
         sorted_chunks = sorted(chunks, key=lambda c: c.score, reverse=True)
-        top_chunks = sorted_chunks[:self.top_k]
+        top_chunks = self._keep_document_diversity(sorted_chunks, self.top_k)
 
         logger.info(
             "Reranking: %d → %d chunks (top score=%.3f, bottom score=%.3f)",
@@ -66,6 +68,45 @@ class Reranker:
         return top_chunks
 
     # ── 评分算法 ────────────────────────────────────────────
+
+    @staticmethod
+    def _keep_document_diversity(
+        chunks: list[RetrievedChunk],
+        top_k: int,
+    ) -> list[RetrievedChunk]:
+        """Keep top chunks while preventing one document from monopolizing context."""
+        if top_k <= 0 or len(chunks) <= 1:
+            return chunks[:top_k]
+
+        doc_groups: OrderedDict[str, list[RetrievedChunk]] = OrderedDict()
+        for chunk in chunks:
+            doc_groups.setdefault(chunk.document_id, []).append(chunk)
+
+        if len(doc_groups) <= 1:
+            return chunks[:top_k]
+
+        guaranteed = max(1, top_k // len(doc_groups))
+        selected: list[RetrievedChunk] = []
+        selected_ids: set[str] = set()
+
+        for doc_chunks in doc_groups.values():
+            for chunk in doc_chunks[:guaranteed]:
+                if chunk.chunk_id in selected_ids:
+                    continue
+                selected.append(chunk)
+                selected_ids.add(chunk.chunk_id)
+                if len(selected) >= top_k:
+                    return selected
+
+        for chunk in chunks:
+            if chunk.chunk_id in selected_ids:
+                continue
+            selected.append(chunk)
+            selected_ids.add(chunk.chunk_id)
+            if len(selected) >= top_k:
+                break
+
+        return selected
 
     @classmethod
     def _keyword_overlap(cls, query: str, content: str) -> float:
