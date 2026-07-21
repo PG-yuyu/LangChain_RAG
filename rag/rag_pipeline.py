@@ -79,12 +79,13 @@ class RAGPipeline:
         self,
         file_path: str,
         knowledge_base_id: str,
+        skip_entity_extraction: bool = False,
     ) -> DocumentSummary:
         """完整的文档上传流水线。
 
         Steps:
         1. 文档处理 → DocumentSummary + ChunkRecords
-        2. 实体关系抽取
+        2. [可选] 实体关系抽取（可跳过以加速）
         3. 组装 DocumentGraphPayload
         4. 调用 GraphDB 写入
         5. 返回 DocumentSummary
@@ -109,15 +110,18 @@ class RAGPipeline:
 
         logger.info("[%s] Document parsed: %s, %d chunks", trace_id, doc_summary.filename, len(chunks))
 
-        # Step 2: 实体关系抽取
+        # Step 2: 实体关系抽取（可跳过，提速 10×+）
         entities: list[EntityRecord] = []
         relations: list[RelationRecord] = []
-        try:
-            entities, relations = self.entity_extractor.extract(chunks)
-        except ServiceError:
-            logger.warning("[%s] Entity extraction failed, continuing with empty entities", trace_id)
-        except Exception as e:
-            logger.warning("[%s] Entity extraction error: %s", trace_id, e)
+        if not skip_entity_extraction:
+            try:
+                entities, relations = self.entity_extractor.extract(chunks)
+            except ServiceError:
+                logger.warning("[%s] Entity extraction failed, continuing with empty entities", trace_id)
+            except Exception as e:
+                logger.warning("[%s] Entity extraction error: %s", trace_id, e)
+        else:
+            logger.info("[%s] Entity extraction skipped (skip_entity_extraction=true)", trace_id)
 
         logger.info("[%s] Extracted: %d entities, %d relations", trace_id, len(entities), len(relations))
 
@@ -343,11 +347,24 @@ class RAGPipeline:
         intent: IntentType,
         trace_id: str,
     ) -> list[str]:
-        """从查询中抽取实体名称。graph_query 意图重点抽取，其他意图简单抽取。"""
-        if intent != IntentType.GRAPH_QUERY:
+        """从查询中抽取实体名称。
+
+        对所有搜索类意图（DOCUMENT_SEARCH / GRAPH_QUERY）都抽取实体，
+        用于 Neo4j 实体节点匹配和图谱检索，作为向量检索的补充。
+
+        NORMAL_CHAT 跳过抽取。
+        """
+        if intent == IntentType.NORMAL_CHAT:
             return []
+
         try:
-            return self.entity_extractor.extract_from_query(query)
+            entities = self.entity_extractor.extract_from_query(query)
+            if entities:
+                logger.info(
+                    "[%s] Extracted %d entities from query: %s",
+                    trace_id, len(entities), entities,
+                )
+            return entities
         except Exception as e:
             logger.warning("[%s] Query entity extraction failed: %s", trace_id, e)
             return []

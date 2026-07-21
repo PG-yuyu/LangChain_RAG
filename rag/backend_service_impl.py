@@ -68,8 +68,17 @@ class RAGBackendService:
             "storage_backend": backend_type,
         }
 
-    def ingest_document(self, file_path: str, knowledge_base_id: str) -> DocumentSummary:
-        return self.pipeline.process_document(file_path, knowledge_base_id)
+    def ingest_document(
+        self,
+        file_path: str,
+        knowledge_base_id: str,
+        skip_entity_extraction: bool = False,
+    ) -> DocumentSummary:
+        return self.pipeline.process_document(
+            file_path,
+            knowledge_base_id,
+            skip_entity_extraction=skip_entity_extraction,
+        )
 
     def answer(self, request: QueryRequest) -> QueryResponse:
         return self.pipeline.answer_query(request)

@@ -2,6 +2,7 @@
 
 特性：
 - 分批处理 chunk（每批 3 个，避免上下文溢出）
+- 并行处理各批次（ThreadPoolExecutor）
 - 同义实体合并
 - 关系名称规范化
 - 稳定的 ID 生成
@@ -9,6 +10,7 @@
 
 import hashlib
 import logging
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from contracts.errors import (
     ENTITY_EXTRACTION_FAILED,
@@ -23,10 +25,8 @@ from rag.prompt_builder import (
 
 logger = logging.getLogger("rag.entity_extractor")
 
-# 规范化同义名称映射
-_CANONICAL_NAME_MAP: dict[str, str] = {}
-# 关系名称标准化
-_RELATION_NORMALIZE_MAP: dict[str, str] = {}
+# 并行抽取的工作线程数（LLM API 调用是 IO 密集型，线程池即可）
+_EXTRACT_WORKERS = 4
 
 
 class EntityExtractor:
@@ -44,7 +44,7 @@ class EntityExtractor:
         """从文档块列表中抽取实体和关系。
 
         策略：
-        1. 每 3 个 chunk 为一组，批量调用 LLM
+        1. 每 3 个 chunk 为一组，**并行**调用 LLM
         2. 合并各组结果
         3. 合并同义实体（跨批去重）
         4. 规范化关系名称
@@ -59,22 +59,35 @@ class EntityExtractor:
         all_relations: list[RelationRecord] = []
 
         batch_size = 3
-        for i in range(0, len(chunks), batch_size):
-            batch = chunks[i:i + batch_size]
-            try:
+        batches = list(range(0, len(chunks), batch_size))
+        total_batches = (len(chunks) + batch_size - 1) // batch_size
+
+        # 并行抽取各批次（IO 密集型 LLM 调用）
+        with ThreadPoolExecutor(max_workers=_EXTRACT_WORKERS) as executor:
+            futures = {}
+            for i in batches:
+                batch = chunks[i:i + batch_size]
                 batch_text = "\n\n---\n\n".join(
                     f"[Chunk {c.chunk_id}] (Page {c.page_number or '?'}):\n{c.content}"
                     for c in batch
                 )
-                entities, relations = self._extract_from_text(batch_text, batch[0].document_id)
-                all_entities.extend(entities)
-                all_relations.extend(relations)
-                logger.info("Batch %d/%d: extracted %d entities, %d relations",
-                            i // batch_size + 1, (len(chunks) + batch_size - 1) // batch_size,
-                            len(entities), len(relations))
-            except ServiceError:
-                logger.warning("Entity extraction failed for batch starting at chunk %d, skipping", i)
-                continue
+                doc_id = batch[0].document_id
+                future = executor.submit(self._extract_from_text, batch_text, doc_id)
+                futures[future] = i
+
+            for future in as_completed(futures):
+                i = futures[future]
+                try:
+                    entities, relations = future.result()
+                    all_entities.extend(entities)
+                    all_relations.extend(relations)
+                    logger.info("Batch %d/%d: extracted %d entities, %d relations",
+                                i // batch_size + 1, total_batches,
+                                len(entities), len(relations))
+                except ServiceError:
+                    logger.warning("Entity extraction failed for batch starting at chunk %d, skipping", i)
+                except Exception as e:
+                    logger.warning("Entity extraction error for batch %d: %s", i, e)
 
         # 合并同义实体
         merged_entities = self._merge_synonyms(all_entities)
@@ -85,8 +98,8 @@ class EntityExtractor:
         # 规范化关系名称
         merged_relations = self._normalize_relations(merged_relations)
 
-        logger.info("Final extraction: %d entities, %d relations (after merge)",
-                     len(merged_entities), len(merged_relations))
+        logger.info("Final extraction: %d entities, %d relations (after merge, %d batches parallel)",
+                     len(merged_entities), len(merged_relations), total_batches)
         return merged_entities, merged_relations
 
     def _extract_from_text(

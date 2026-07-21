@@ -30,6 +30,7 @@ from neo4j_chroma.database_repository import (
     ParentChunkNode,
 )
 from neo4j_chroma.hybrid_retriever import HybridRetriever, SourceInfo
+from neo4j_chroma import cypher_queries as queries
 from neo4j_chroma.neo4j_client import Neo4jClient
 from neo4j_chroma.vector_store import VectorStore
 
@@ -74,6 +75,7 @@ RETURN e.entity_id AS entity_id,
 _RETRIEVE_ENTITIES_BY_NAME = """
 MATCH (e:Entity {knowledge_base_id: $knowledge_base_id})
 WHERE toLower(e.name) CONTAINS toLower($keyword)
+   OR toLower(e.aliases) CONTAINS toLower($keyword)
 RETURN e.entity_id AS entity_id,
        e.name AS name,
        e.entity_type AS entity_type,
@@ -243,7 +245,7 @@ class Neo4jChromaGraphRepository(GraphRepository):
         knowledge_base_id: str,
         document_id: str,
     ) -> None:
-        """Write Entity nodes and RELATED relationships into Neo4j."""
+        """Write Entity nodes and RELATED relationships into Neo4j (batch writes)."""
         client = self._get_neo4j_client()
         if client is None:
             logger.warning("No Neo4j client available (using mock mode), skipping entity storage")
@@ -258,23 +260,29 @@ class Neo4jChromaGraphRepository(GraphRepository):
         except Exception as exc:
             logger.warning("Failed to clear old entity graph: %s", exc)
 
-        # Create Entity nodes
-        for ent in entities:
-            try:
-                client.execute(_MERGE_ENTITY, {
+        # Batch create Entity nodes
+        if entities:
+            entity_params = [
+                {
                     "entity_id": ent.entity_id,
                     "name": ent.name,
                     "entity_type": ent.entity_type,
                     "aliases": json.dumps(ent.aliases, ensure_ascii=False),
                     "knowledge_base_id": knowledge_base_id,
-                })
-            except Exception as exc:
-                logger.warning("Failed to create entity %s: %s", ent.entity_id, exc)
-
-        # Create relationships
-        for rel in relations:
+                    "document_id": document_id,
+                }
+                for ent in entities
+            ]
             try:
-                client.execute(_MERGE_RELATION, {
+                client.execute(queries.BATCH_MERGE_ENTITIES, {"entities": entity_params})
+                logger.info("Batch created %d entities", len(entities))
+            except Exception as exc:
+                logger.warning("Failed to batch create entities: %s", exc)
+
+        # Batch create relationships
+        if relations:
+            relation_params = [
+                {
                     "source_entity_id": rel.source_entity_id,
                     "target_entity_id": rel.target_entity_id,
                     "relation_id": rel.relation_id,
@@ -282,9 +290,14 @@ class Neo4jChromaGraphRepository(GraphRepository):
                     "source_chunk_id": rel.source_chunk_id,
                     "confidence": rel.confidence,
                     "knowledge_base_id": knowledge_base_id,
-                })
+                }
+                for rel in relations
+            ]
+            try:
+                client.execute(queries.BATCH_MERGE_RELATIONS, {"relations": relation_params})
+                logger.info("Batch created %d relations", len(relations))
             except Exception as exc:
-                logger.warning("Failed to create relation %s: %s", rel.relation_id, exc)
+                logger.warning("Failed to batch create relations: %s", exc)
 
         logger.info("Entity graph written: %d entities, %d relations", len(entities), len(relations))
 
@@ -331,9 +344,16 @@ class Neo4jChromaGraphRepository(GraphRepository):
         paths: list[list[str]] = []
 
         client = self._get_neo4j_client()
-        if client is not None and (entity_names or document_ids):
-            # Find matching entities by name
+        # Always try Neo4j entity search when there's a query or known entities/docs
+        has_content = bool(entity_names) or bool(document_ids) or bool(query.strip())
+        if client is not None and has_content:
+            # Find matching entities by name (or fall back to query keywords)
             search_names = entity_names or []
+            if not search_names and query.strip():
+                # Use the query itself as the keyword for entity search
+                # (extracts entities like "戊戌维新运动" from the query text)
+                search_names = [query.strip()]
+
             for name in search_names:
                 rows = client.execute(_RETRIEVE_ENTITIES_BY_NAME, {
                     "knowledge_base_id": knowledge_base_id,

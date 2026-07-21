@@ -67,6 +67,10 @@ class VectorStore:
         child_vector_ids = self.add_child_chunks(child_chunks, filename=filename)
         return VectorWriteResult(parent_vector_ids, child_vector_ids)
 
+    def _should_skip_manual_embed(self) -> bool:
+        """True when Chroma auto-computes embeddings (no manual embed needed)."""
+        return getattr(self.chroma_client, "_skip_manual_embed", False)
+
     def add_parent_chunks(
         self,
         parent_chunks: Sequence[ParentChunkNode | Mapping[str, Any]],
@@ -79,14 +83,11 @@ class VectorStore:
             self._parent_metadata(chunk, filename=filename, vector_id=vector_id)
             for chunk, vector_id in zip(parents, ids)
         ]
-        embeddings = self.embedding_function.embed_documents(documents)
+        kwargs = dict(ids=ids, documents=documents, metadatas=metadatas)
+        if not self._should_skip_manual_embed():
+            kwargs["embeddings"] = self.embedding_function.embed_documents(documents)
         if ids:
-            self.chroma_client.parent_collection.upsert(
-                ids=ids,
-                documents=documents,
-                metadatas=metadatas,
-                embeddings=embeddings,
-            )
+            self.chroma_client.parent_collection.upsert(**kwargs)
         return ids
 
     def add_child_chunks(
@@ -101,14 +102,11 @@ class VectorStore:
             self._child_metadata(chunk, filename=filename, vector_id=vector_id)
             for chunk, vector_id in zip(children, ids)
         ]
-        embeddings = self.embedding_function.embed_documents(documents)
+        kwargs = dict(ids=ids, documents=documents, metadatas=metadatas)
+        if not self._should_skip_manual_embed():
+            kwargs["embeddings"] = self.embedding_function.embed_documents(documents)
         if ids:
-            self.chroma_client.child_collection.upsert(
-                ids=ids,
-                documents=documents,
-                metadatas=metadatas,
-                embeddings=embeddings,
-            )
+            self.chroma_client.child_collection.upsert(**kwargs)
         return ids
 
     def query_child_chunks(
@@ -118,12 +116,16 @@ class VectorStore:
         document_ids: Sequence[str] | None = None,
     ) -> list[VectorSearchResult]:
         where = self._document_filter(document_ids)
-        result = self.chroma_client.child_collection.query(
-            query_embeddings=[self.embedding_function.embed_query(query)],
+        kwargs: dict[str, Any] = dict(
             n_results=top_k,
             where=where,
             include=["documents", "metadatas", "distances"],
         )
+        if self._should_skip_manual_embed():
+            kwargs["query_texts"] = [query]
+        else:
+            kwargs["query_embeddings"] = [self.embedding_function.embed_query(query)]
+        result = self.chroma_client.child_collection.query(**kwargs)
         return self._query_result_to_documents(result)
 
     def get_parent_documents_by_ids(self, parent_ids: Iterable[str]) -> list[VectorDocument]:

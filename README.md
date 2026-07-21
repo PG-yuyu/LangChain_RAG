@@ -201,6 +201,8 @@ npm run dev
 
 ```bash
 # 拉取并启动 Neo4j 5 社区版
+完整命令：docker run -d --name neo4j-rag -p 7474:7474 -p 7687:7687 -e NEO4J_AUTH=neo4j/password -e 'NEO4J_PLUGINS=["apoc"]' -v neo4j-data:/data neo4j:5-community
+拆分解释：
 docker run -d \
   --name neo4j \
   -p 7474:7474 \    # HTTP 管理界面

@@ -65,11 +65,15 @@ def health_check(backend=Depends(get_backend_service)):
 async def ingest_document(
     file: UploadFile = File(..., description="要上传的文档（PDF/DOCX/TXT）"),
     knowledge_base_id: str = Form(..., description="目标知识库 ID"),
+    skip_entity_extraction: bool = Form(False, description="跳过实体关系抽取（大幅提速，但丧失图谱检索能力）"),
     backend=Depends(get_backend_service),
 ):
-    """上传文档：解析 → 切块 → 实体抽取 → 写入 GraphDB。
+    """上传文档：解析 → 切块 → 实体抽取（可选） → 写入 GraphDB。
 
     支持 PDF、DOCX、TXT 格式。
+
+    参数 ``skip_entity_extraction`` 设为 true 可跳过最耗时的
+    LLM 实体抽取步骤（提速 10×+），适合只想测试检索效果的场景。
     """
     # 校验文件类型
     allowed_extensions = {".pdf", ".docx", ".txt", ".doc", ".md"}
@@ -95,6 +99,7 @@ async def ingest_document(
         result = backend.ingest_document(
             file_path=tmp_path,
             knowledge_base_id=knowledge_base_id,
+            skip_entity_extraction=skip_entity_extraction,
         )
         return DocumentSummaryResponse(
             document_id=result.document_id,

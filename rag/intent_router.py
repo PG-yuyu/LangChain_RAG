@@ -98,5 +98,33 @@ class IntentRouter:
             if re.search(pat, query):
                 return IntentType.GRAPH_QUERY
 
-        # 5. 没有明确命中规则，需要 LLM 判断
+        # 5. 历史事件/原因/意义/教训类问题 → document_search
+        content_search_patterns = [
+            r".*的?意义",
+            r".*的?原因",
+            r".*的?教训",
+            r".*的?背景",
+            r".*的?影响",
+            r".*的?作用",
+            r".*的?目的",
+            r".*的?特点",
+            r".*的?特征",
+            r".*的?定义",
+            r".*的?概念",
+            r".*什么(是|叫|为).*",
+            r".*如何.*",
+            r".*为什么.*",
+            r".*简述.*",
+            r".*概述.*",
+            r".*总结.*",
+            r".*介绍.*",
+            r".*分析.*",
+            r".*比较.*区别",
+            r".*对比.*",
+        ]
+        for pat in content_search_patterns:
+            if re.search(pat, query):
+                return IntentType.DOCUMENT_SEARCH
+
+        # 6. 没有明确命中规则，需要 LLM 判断
         return None
