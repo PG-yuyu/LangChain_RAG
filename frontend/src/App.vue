@@ -22,7 +22,9 @@ const isAsking = ref(false)
 const messages = ref([
   {
     role: 'assistant',
-    content: '上传并选择左侧文件后，在底部输入问题开始检索问答。'
+    content: '上传并选择左侧文件后，在底部输入问题开始检索问答。',
+    sources: [],
+    showSources: false
   }
 ])
 const chatAreaEl = ref(null)
@@ -136,7 +138,13 @@ async function sendQuestion() {
   if (!text || isAsking.value) return
 
   messages.value.push({ role: 'user', content: text })
-  const assistantMessage = reactive({ role: 'assistant', content: '', isStreaming: true })
+  const assistantMessage = reactive({
+    role: 'assistant',
+    content: '',
+    isStreaming: true,
+    sources: [],
+    showSources: false
+  })
   const streamDisplay = createSmoothStream(assistantMessage)
   messages.value.push(assistantMessage)
   question.value = ''
@@ -155,7 +163,10 @@ async function sendQuestion() {
         max_hops: 2,
         enable_query_rewrite: true
       },
-      (delta) => streamDisplay.enqueue(delta)
+      (delta) => streamDisplay.enqueue(delta),
+      (sources) => {
+        assistantMessage.sources = dedupeSources(sources)
+      }
     )
     await streamDisplay.finish()
     assistantMessage.isStreaming = false
@@ -222,7 +233,8 @@ function scrollMessagesToBottom() {
   }
 }
 
-function renderMarkdown(text) {
+function renderMarkdown(text, sources = []) {
+  const sourceLabels = buildSourceLabels(sources)
   const escaped = text
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
@@ -271,7 +283,7 @@ function renderMarkdown(text) {
         html.push(`<${nextType}${start}>`)
         listType = nextType
       }
-      html.push(`<li>${formatInlineMarkdown(orderedMatch ? orderedMatch[2] : unorderedMatch[1])}</li>`)
+      html.push(`<li>${formatInlineMarkdown(orderedMatch ? orderedMatch[2] : unorderedMatch[1], sourceLabels)}</li>`)
       continue
     }
 
@@ -282,15 +294,15 @@ function renderMarkdown(text) {
     } else if (/^\s*---+\s*$/.test(line)) {
       html.push('<hr>')
     } else if (line.startsWith('#### ')) {
-      html.push(`<h4>${formatInlineMarkdown(line.slice(5))}</h4>`)
+      html.push(`<h4>${formatInlineMarkdown(line.slice(5), sourceLabels)}</h4>`)
     } else if (line.startsWith('### ')) {
-      html.push(`<h3>${formatInlineMarkdown(line.slice(4))}</h3>`)
+      html.push(`<h3>${formatInlineMarkdown(line.slice(4), sourceLabels)}</h3>`)
     } else if (line.startsWith('## ')) {
-      html.push(`<h2>${formatInlineMarkdown(line.slice(3))}</h2>`)
+      html.push(`<h2>${formatInlineMarkdown(line.slice(3), sourceLabels)}</h2>`)
     } else if (line.startsWith('# ')) {
-      html.push(`<h1>${formatInlineMarkdown(line.slice(2))}</h1>`)
+      html.push(`<h1>${formatInlineMarkdown(line.slice(2), sourceLabels)}</h1>`)
     } else {
-      html.push(`<p>${formatInlineMarkdown(line)}</p>`)
+      html.push(`<p>${formatInlineMarkdown(line, sourceLabels)}</p>`)
     }
   }
 
@@ -302,8 +314,14 @@ function renderMarkdown(text) {
   return html.join('')
 }
 
-function formatInlineMarkdown(text) {
-  return text
+function formatInlineMarkdown(text, sourceLabels = {}) {
+  const normalized = normalizeSourceMarkerPosition(text)
+
+  return normalized
+    .replace(/\{\{source:(\d+)\}\}/g, (_, index) => {
+      const label = shortenSourceLabel(sourceLabels[index] || '来源')
+      return `<span class="inline-source-chip">${label}</span>`
+    })
     .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
     .replace(/\*(.+?)\*/g, '<em>$1</em>')
     .replace(/`(.+?)`/g, '<code>$1</code>')
@@ -380,9 +398,41 @@ function defaultMessages() {
   return [
     {
       role: 'assistant',
-      content: '上传并选择左侧文件后，在底部输入问题开始检索问答。'
+      content: '上传并选择左侧文件后，在底部输入问题开始检索问答。',
+      sources: [],
+      showSources: false
     }
   ]
+}
+
+function normalizeSourceMarkerPosition(text) {
+  return text.replace(/(\{\{source:\d+\}\})([。！？；.!?;])/g, '$2$1')
+}
+
+function shortenSourceLabel(label) {
+  if (!label || label === '来源') return '来源'
+  const dotIndex = label.lastIndexOf('.')
+  const extension = dotIndex > 0 ? label.slice(dotIndex) : ''
+  const name = dotIndex > 0 ? label.slice(0, dotIndex) : label
+  const maxLength = extension ? 10 : 12
+  if (name.length <= maxLength) return label
+  return `${name.slice(0, maxLength)}...${extension}`
+}
+
+function buildSourceLabels(sources = []) {
+  const labels = {}
+  const documentNames = []
+
+  for (const source of sources) {
+    if (!source.filename || documentNames.includes(source.filename)) continue
+    documentNames.push(source.filename)
+  }
+
+  documentNames.forEach((filename, index) => {
+    labels[String(index + 1)] = filename
+  })
+
+  return labels
 }
 
 function loadConversations() {
@@ -416,6 +466,41 @@ function openConversation(conversationId) {
   if (!conversation) return
   activeConversationId.value = conversation.id
   messages.value = conversation.messages.map((item) => ({ ...item }))
+}
+
+function toggleMessageSources(message) {
+  message.showSources = !message.showSources
+}
+
+function dedupeSources(sources = []) {
+  const seen = new Set()
+  return sources
+    .filter((source) => {
+      const contentKey = (source.content || '').replace(/\s+/g, '').slice(0, 160)
+      const key = `${source.document_id || source.filename}|${source.page_number || ''}|${contentKey}`
+      if (seen.has(key)) return false
+      seen.add(key)
+      return true
+    })
+    .sort((left, right) => {
+      const filenameCompare = (left.filename || '').localeCompare(right.filename || '', 'zh-Hans-CN')
+      if (filenameCompare) return filenameCompare
+      return sourcePageOrder(left) - sourcePageOrder(right)
+    })
+}
+
+function sourcePageOrder(source) {
+  return Number.isFinite(source.page_number) ? Number(source.page_number) : Number.MAX_SAFE_INTEGER
+}
+
+function sourcePageText(source) {
+  return source.page_number ? `第 ${source.page_number} 页` : '未知页'
+}
+
+function cleanSourceContent(content = '') {
+  return content
+    .replace(/^[\s。．.，,、；;：:!！?？·•●○\-—–]+/, '')
+    .trim()
 }
 
 function removeConversation(conversationId) {
@@ -636,7 +721,25 @@ function saveActiveConversation(latestQuestion = '') {
                 <span></span>
                 <em>正在检索并生成回答</em>
               </div>
-              <div v-else v-html="renderMarkdown(message.content)"></div>
+              <div v-else v-html="renderMarkdown(message.content, message.sources)"></div>
+              <div v-if="message.sources?.length" class="source-tools">
+                <button class="source-toggle" @click="toggleMessageSources(message)">
+                  {{ message.showSources ? '收起来源' : `来源 ${message.sources.length}` }}
+                </button>
+                <div v-if="message.showSources" class="source-panel">
+                  <div
+                    v-for="(source, sourceIndex) in message.sources"
+                    :key="`${source.document_id}-${source.chunk_id}-${sourceIndex}`"
+                    class="source-card"
+                  >
+                    <div class="source-head">
+                      <strong>{{ source.filename }}</strong>
+                      <span>{{ sourcePageText(source) }}</span>
+                    </div>
+                    <p>{{ cleanSourceContent(source.content) }}</p>
+                  </div>
+                </div>
+              </div>
             </div>
             <div v-else class="bubble">{{ message.content }}</div>
             <div v-if="message.role === 'user'" class="avatar user-avatar">我</div>

@@ -165,12 +165,16 @@ _SYSTEM_ANSWER = """你是一个智能文档检索助手，基于提供的文档
 2. **综合所有提供的参考片段，尽可能给出完整的回答**。不同片段可能涵盖不同方面，请把它们组织在一起
 3. 如果参考内容包含足够的信息，请全面回答问题的各个角度，不要只回答部分内容
 4. 如果参考内容不足以回答问题，明确说明"根据现有资料，未能找到相关信息"
-5. 用中文回答，条理清晰、内容充實
-6. 正文中不要使用 [1]、[2] 这类引用编号
-7. 不要在每句话或每个分点后反复添加来源标记
-8. 不要在回答末尾添加"来源："或文件名说明
-9. 如果涉及实体关系，只说明关系内容，不要额外列出来源文档
-10. 对于 graph_query 意图，重点说明实体间的关系路径"""
+5. 用中文回答，条理清晰、内容充实
+6. 不要使用 [1]、[2] 这类方括号引用编号
+7. 只给关键结论添加少量来源标记，格式必须是 {{source:编号}}，例如 {{source:1}}
+8. 每个自然段最多添加 1 个来源标记，全文最多添加 3 个来源标记
+9. 来源标记必须放在句号、问号、感叹号、分号等结束标点之后，例如"这是结论。{{source:1}}"
+10. 不要写成"这是结论{{source:1}}。"，不要把来源标记放到结束标点前
+11. 不要在每句话后、每个分点后都添加来源标记
+12. 不要在回答末尾添加"来源："或文件名说明
+13. 如果涉及实体关系，只说明关系内容，不要额外列出来源文档
+14. 对于 graph_query 意图，重点说明实体间的关系路径"""
 
 
 def build_answer_prompt(
@@ -192,15 +196,17 @@ def build_answer_prompt(
             if chunk.document_id not in document_names:
                 document_names[chunk.document_id] = chunk.filename
 
-        context_parts.append("### 来源文件：")
-        for filename in document_names.values():
-            context_parts.append(f"- {filename}")
+        source_indexes: dict[str, int] = {}
+        context_parts.append("### 来源编号：")
+        for document_id, filename in document_names.items():
+            source_indexes[document_id] = len(source_indexes) + 1
+            context_parts.append(f"source:{source_indexes[document_id]} = {filename}")
 
         context_parts.append("\n### 检索到的相关片段：")
         for chunk in chunks:
             page_info = f"第{chunk.page_number}页" if chunk.page_number else "未知页"
             context_parts.append(
-                f"文档：{chunk.filename} ({page_info})\n{chunk.content}"
+                f"source:{source_indexes[chunk.document_id]} 文档：{chunk.filename} ({page_info})\n{chunk.content}"
             )
 
     # 知识图谱上下文
@@ -228,7 +234,8 @@ def build_answer_prompt(
         f"（改写后：{rewritten_query}）\n\n"
         f"参考信息：\n{context}\n"
         f"{intent_guidance}\n"
-        f"请基于以上参考信息回答问题。不要使用 [1]、[2] 这类引用编号，也不要在末尾添加来源文件名。"
+        f"请基于以上参考信息回答问题。不要使用 [1]、[2] 这类方括号编号；"
+        f"如需标注观点来源，只使用 {{source:编号}} 这种格式，且不要在末尾添加来源文件名。"
     )
 
     return [

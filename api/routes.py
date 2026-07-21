@@ -206,8 +206,11 @@ async def answer_query_stream(
 
     async def event_stream():
         try:
-            for delta in backend.answer_stream(request):
-                yield f"data: {json.dumps({'type': 'delta', 'content': delta}, ensure_ascii=False)}\n\n"
+            for event in backend.answer_stream(request):
+                if isinstance(event, dict):
+                    yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+                else:
+                    yield f"data: {json.dumps({'type': 'delta', 'content': event}, ensure_ascii=False)}\n\n"
         except ServiceError as e:
             yield f"data: {json.dumps({'type': 'error', 'message': e.message}, ensure_ascii=False)}\n\n"
         except Exception as e:

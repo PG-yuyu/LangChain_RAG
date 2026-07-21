@@ -6,6 +6,7 @@
 """
 
 import logging
+import re
 import uuid
 from datetime import date
 
@@ -259,6 +260,7 @@ class RAGPipeline:
                 collected.append(fallback)
                 yield fallback
             self.session_store.add_message(request.session_id, "assistant", "".join(collected))
+            yield {"type": "sources", "sources": []}
             return
 
         rewritten_query = request.query
@@ -273,6 +275,7 @@ class RAGPipeline:
             trace_id=trace_id,
         )
         reranked_chunks = self._rerank_chunks(rewritten_query, retrieval_result.chunks, trace_id)
+        sources = self._build_sources(reranked_chunks)
         messages = build_answer_prompt(
             query=request.query,
             rewritten_query=rewritten_query,
@@ -294,6 +297,13 @@ class RAGPipeline:
             yield fallback
 
         self.session_store.add_message(request.session_id, "assistant", "".join(collected))
+        yield {
+            "type": "sources",
+            "sources": [
+                source.model_dump() if hasattr(source, "model_dump") else source.dict()
+                for source in sources
+            ],
+        }
 
     # ── 子步骤（每步有独立错误处理）─────────────────────────
 
@@ -433,13 +443,30 @@ class RAGPipeline:
     def _build_sources(chunks: list[RetrievedChunk]) -> list[SourceReference]:
         """将检索到的 chunk 转换为 SourceReference 列表。"""
         sources: list[SourceReference] = []
+        seen: set[tuple[str, int | None, str]] = set()
         for chunk in chunks:
+            content_preview = "".join(chunk.content.split())[:160]
+            key = (chunk.document_id, chunk.page_number, content_preview)
+            if key in seen:
+                continue
+            seen.add(key)
             sources.append(SourceReference(
                 document_id=chunk.document_id,
                 filename=chunk.filename,
                 chunk_id=chunk.chunk_id,
                 page_number=chunk.page_number,
-                content=chunk.content[:300],  # 截取前 300 字符作为摘要
+                content=RAGPipeline._clean_source_content(chunk.content)[:300],  # 截取前 300 字符作为摘要
                 score=chunk.score,
             ))
-        return sources
+        return sorted(
+            sources,
+            key=lambda source: (
+                source.filename,
+                source.page_number if source.page_number is not None else 10**9,
+                source.chunk_id,
+            ),
+        )
+
+    @staticmethod
+    def _clean_source_content(content: str) -> str:
+        return re.sub(r"^[\s。．.，,、；;：:!！?？·•●○\-—–]+", "", content).strip()

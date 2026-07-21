@@ -43,7 +43,7 @@ export async function askQuestion(payload) {
   return readJson(response)
 }
 
-export async function streamQuestion(payload, onDelta) {
+export async function streamQuestion(payload, onDelta, onSources) {
   const response = await fetch(`${API_BASE}/api/query/stream`, {
     method: 'POST',
     headers: {
@@ -77,6 +77,9 @@ export async function streamQuestion(payload, onDelta) {
       const event = JSON.parse(dataLine.slice(5).trim())
       if (event.type === 'delta') {
         onDelta(event.content)
+      }
+      if (event.type === 'sources') {
+        onSources?.(event.sources || [])
       }
       if (event.type === 'error') {
         throw new Error(event.message || '请求失败')
