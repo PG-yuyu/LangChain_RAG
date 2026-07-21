@@ -1,6 +1,6 @@
 # GraphRAG 智能文档检索问答系统
 
-基于 **GraphRAG + Agentic RAG** 的文档检索与问答系统，支持多文档上传、语义检索、知识图谱展示和流式问答。
+基于 **GraphRAG + Agentic RAG** 的文档检索与问答系统，前端使用 **Vue 3 + Vite**，后端使用 **FastAPI**，数据库使用 **Chroma + Neo4j**。系统支持多文档上传、用户登录、会话历史、语义检索、知识图谱检索、来源追溯和流式问答。
 
 ## 功能特性
 
@@ -15,6 +15,7 @@
 - **子块高精度召回** — 在子块集合中搜索最相关片段
 - **父块上下文回溯** — 通过 parent_id 从父块集合取回完整上下文
 - **文档范围过滤** — 支持指定在特定文档范围内检索
+- **多文档覆盖** — 多文件检索时按文档分别召回候选片段，并在重排后保留文档多样性，避免单个文件占满上下文
 
 ### 知识图谱
 - **实体关系抽取** — 自动从文档中识别实体并抽取关系（通过 LLM）
@@ -28,15 +29,23 @@
   - `document_search` — 基于文档内容的问答，走完整 RAG 流水线
   - `graph_query` — 实体关系查询，融合图检索结果
 - **问题改写** — 基于会话历史的上下文感知改写
-- **候选重排** — 关键词 Jaccard 相似度 + 位置加权重排
-- **引用标注** — 答案中标注来源编号，后端返回结构化引用信息
+- **候选重排** — 语义分数 + 关键词 Jaccard 相似度混合重排，并保留多文档覆盖
+- **引用标注** — 答案中使用段落级来源标记，前端渲染为短文件名标签，并提供可展开的来源片段
 - **流式输出** — SSE 流式返回生成内容，前端实时渲染
+
+### 前端交互
+- **登录 / 注册** — 前端提供独立登录注册页，密码长度不少于 6 位
+- **按用户知识库** — 登录后展示当前用户名、知识库、数据库与运行状态
+- **文件侧边栏** — 左侧统一管理上传文件，可勾选“所有文件”或单个文件作为本次 RAG 范围
+- **对话历史** — 支持新建对话、切换历史对话、删除会话；会话名默认取第一次提问前 20 个字符
+- **流式 Markdown 渲染** — 回答实时输出并渲染标题、列表、加粗、代码和来源标签
 
 ### 系统集成
 - **自动降级** — 无 Neo4j/Chroma 时自动使用 Mock 内存仓库，功能完全可用
 - **统一接口层** — 三人各自开发的模块通过 contracts 协议解耦
 - **幂等写入** — 重复上传同一文档自动覆盖，不留孤儿数据
 - **完整清理** — 删除文档时同时清理 Neo4j 节点 + Chroma 向量 + 实体图
+- **环境变量加载** — 后端自动读取项目根目录 `.env`，并兼容 UTF-8 BOM 文件头
 
 ## 技术栈
 
@@ -54,6 +63,10 @@
 ```text
 project/
 ├── app.py                      # FastAPI 主入口
+├── pyproject.toml              # uv / Python 项目依赖声明
+├── requirements.txt            # pip 依赖清单
+├── uv.lock                     # uv 锁文件
+├── .env.example                # 环境变量示例
 ├── contracts/                  # 共享接口层（三人共同维护）
 │   ├── models.py               # 数据模型（Pydantic）
 │   ├── backend_service.py      # 前端调用的统一业务接口
@@ -90,15 +103,25 @@ project/
 │   ├── dependencies.py         # 依赖注入
 │   └── schemas.py              # API 请求/响应模型
 │
+├── backend/                    # 兼容旧入口与轻量后端封装
+│   ├── main.py                 # 旧版 FastAPI 入口
+│   ├── models.py               # 旧版请求/响应模型
+│   ├── services.py             # 旧版服务封装
+│   └── requirements.txt        # 后端依赖清单
+│
 ├── graphdb/                    # 模拟层
 │   └── mock_graph_repository.py # 内存 Mock 仓库
 │
 ├── frontend/                   # 成员1：Vue 前端
+│   ├── package.json            # 前端依赖与脚本
+│   ├── package-lock.json       # npm 锁文件
+│   ├── index.html              # Vite HTML 入口
+│   ├── vite.config.js          # Vite 配置（含代理）
 │   ├── src/
 │   │   ├── App.vue             # 主页面
+│   │   ├── main.js             # Vue 挂载入口
 │   │   ├── api.js              # 后端 API 调用
 │   │   └── styles.css          # 样式
-│   └── vite.config.js          # Vite 配置（含代理）
 │
 ├── scripts/
 │   ├── init_neo4j.py           # Neo4j schema 初始化
@@ -161,19 +184,22 @@ cp .env.example .env
 ### 2. 安装依赖
 
 ```bash
-# 后端依赖
+# 后端依赖（推荐 uv）
+uv sync
+
+# 或使用 pip
 pip install -r requirements.txt
 
 # 前端依赖
 cd frontend && npm install && cd ..
 ```
 
-> **提示**：若不使用 Neo4j/Chroma，可不安装 `neo4j` 和 `chromadb`，后端自动降级为 Mock 模式。
+> **提示**：当前完整模式需要 `neo4j` 和 `chromadb`。若数据库不可用，后端会自动降级为 Mock 模式，便于前端和接口联调。
 
 ### 3. 启动后端
 
 ```bash
-uvicorn app:app --reload --host 0.0.0.0 --port 8000
+uv run uvicorn app:app --reload --host 127.0.0.1 --port 8000
 ```
 
 API 文档：http://localhost:8000/docs
@@ -192,8 +218,8 @@ npm run dev
 ### 前置条件
 
 - Docker（推荐）或本地安装的 Neo4j 5.x 数据库
-- Python ≥ 3.10
-- 已安装所有依赖：`pip install -r requirements.txt`
+- Python ≥ 3.11
+- 已安装所有依赖：`uv sync` 或 `pip install -r requirements.txt`
 
 ### 1. 启动 Neo4j 数据库
 
@@ -244,7 +270,7 @@ python -c "from neo4j import GraphDatabase; driver=GraphDatabase.driver('bolt://
 创建数据库的索引和唯一约束（只需执行一次）：
 
 ```bash
-python scripts/init_neo4j.py
+uv run python scripts/init_neo4j.py
 ```
 
 若成功会输出 `Schema initialized successfully`。此脚本会创建以下约束和索引：
@@ -285,7 +311,7 @@ EMBEDDING_DIMENSION=384
 ### 4. 启动后端
 
 ```bash
-uvicorn app:app --reload --host 0.0.0.0 --port 8000
+uv run uvicorn app:app --reload --host 127.0.0.1 --port 8000
 ```
 
 启动日志中会显示：
@@ -306,7 +332,7 @@ WARNING - Neo4j/Chroma health check failed, falling back to MockGraphRepository.
 
 ```bash
 set NEO4J_CHROMA_RUN_INTEGRATION=1
-python -m unittest tests.test_neo4j_chroma_integration -v
+uv run python -m unittest tests.test_neo4j_chroma_integration -v
 ```
 
 测试内容：
@@ -321,7 +347,7 @@ python -m unittest tests.test_neo4j_chroma_integration -v
 **查看当前存储的文档列表：**
 
 ```bash
-python -c "
+uv run python -c "
 from neo4j_chroma.database_repository import DatabaseRepository
 repo = DatabaseRepository.from_env()
 for doc in repo.list_documents():
@@ -333,7 +359,7 @@ repo.close()
 **按文档 ID 查看块结构：**
 
 ```bash
-python -c "
+uv run python -c "
 from neo4j_chroma.database_repository import DatabaseRepository
 repo = DatabaseRepository.from_env()
 parents = repo.get_parent_chunks('doc_xxx')
@@ -351,14 +377,14 @@ repo.close()
 
 ```bash
 # 清理 Neo4j 所有文档/块/实体
-python scripts/clear_neo4j.py
+uv run python scripts/clear_neo4j.py
 
 # 重建 Chroma 父/子集合
-python scripts/clear_chroma.py
+uv run python scripts/clear_chroma.py
 
 # 清理指定文档
-python scripts/clear_neo4j.py --document-id doc_001
-python scripts/clear_chroma.py --document-id doc_001
+uv run python scripts/clear_neo4j.py --document-id doc_001
+uv run python scripts/clear_chroma.py --document-id doc_001
 ```
 
 ### 7. 数据库监控
@@ -399,8 +425,7 @@ docker start neo4j
 # 彻底删除容器（数据丢失）
 docker rm neo4j
 
-# 清理 Chroma 持久化数据
-rm -rf .chroma/
+# 如需清理 Chroma 持久化目录，请先停止后端，再手动删除项目根目录下的 .chroma 目录
 ```
 
 ## API 接口
@@ -423,7 +448,7 @@ rm -rf .chroma/
   "session_id": "sess_001",
   "knowledge_base_id": "kb_demo",
   "selected_document_ids": [],
-  "top_k": 5,
+  "top_k": 10,
   "max_hops": 2,
   "enable_query_rewrite": true
 }
@@ -439,6 +464,7 @@ rm -rf .chroma/
   "rewritten_query": "改写后的问题",
   "sources": [
     {
+      "citation_index": 1,
       "document_id": "doc_xxx",
       "filename": "example.pdf",
       "chunk_id": "chunk_xxx",
@@ -454,6 +480,19 @@ rm -rf .chroma/
   "trace_id": "trace_xxx"
 }
 ```
+
+### 流式问答事件
+
+`POST /api/v1/query/stream` 使用 SSE 返回：
+
+| 事件 | 说明 |
+|---|---|
+| `token` | LLM 生成的增量文本，前端实时追加并渲染 Markdown |
+| `sources` | 本次回答实际引用到的来源片段 |
+| `done` | 回答完成，包含意图、改写问题、图谱节点/边等元信息 |
+| `error` | 生成失败时返回错误信息 |
+
+前端会把回答中的 `{{source:编号}}` 渲染为短文件名标签；同一段最多显示一个标签，并统一放在段落末尾。
 
 ## RAG 流水线
 
@@ -474,11 +513,21 @@ rm -rf .chroma/
 用户问题 → 意图识别（规则预检 → LLM 分类）
         ├─ normal_chat → 直接 LLM 回复
         ├─ document_search → 问题改写 → 子块语义检索
+        │                    → 多文档分别召回，保证不同选中文档都有候选片段
         │                    → 父块回溯获取完整上下文
-        │                    → 关键词重排 → Prompt 组装 → LLM 回答
+        │                    → 混合重排并保留文档多样性
+        │                    → Prompt 组装 → LLM 流式回答
+        │                    → 返回实际引用到的来源片段
         └─ graph_query   → 实体抽取 → Neo4j 实体图查询
                            → 子图路径检索 → 合并证据 → LLM 回答
 ```
+
+### 来源追溯规则
+
+- 后端为每个检索片段分配 `citation_index`，Prompt 中只暴露这些编号。
+- LLM 只在能被某个片段直接支撑的段落末尾输出 `{{source:编号}}`。
+- 前端将来源标记渲染为短文件名标签，文件名过长会自动省略。
+- 来源面板只展示回答中实际引用到的片段，并按文件页码顺序排列。
 
 ## 存储设计
 
@@ -512,15 +561,15 @@ rm -rf .chroma/
 
 ```bash
 # 运行所有测试
-python -m unittest discover tests -p "test_*.py"
+uv run python -m unittest discover tests -p "test_*.py"
 
 # 运行特定模块测试
-python -m unittest tests.test_document_processor
-python -m unittest tests.test_neo4j_client
+uv run python -m unittest tests.test_document_processor
+uv run python -m unittest tests.test_neo4j_client
 
 # 运行真实集成测试（需 Neo4j + Chroma 运行中）
 set NEO4J_CHROMA_RUN_INTEGRATION=1
-python -m unittest tests.test_neo4j_chroma_integration
+uv run python -m unittest tests.test_neo4j_chroma_integration
 ```
 
 ## 环境变量
@@ -530,11 +579,21 @@ python -m unittest tests.test_neo4j_chroma_integration
 | `LLM_API_KEY` | — | LLM API 密钥（必填） |
 | `LLM_BASE_URL` | `https://api.deepseek.com` | API 地址 |
 | `LLM_MODEL` | `deepseek-chat` | 模型名 |
+| `LLM_TEMPERATURE` | `0.3` | 生成温度 |
+| `LLM_MAX_TOKENS` | `4096` | 最大生成 token 数 |
+| `LLM_TIMEOUT` | `60` | LLM 请求超时时间（秒） |
 | `RAG_CHUNK_SIZE` | 500 | 文档切块大小（字符） |
 | `RAG_CHUNK_OVERLAP` | 50 | 切块重叠（字符） |
-| `RAG_TOP_K` | 5 | 检索返回块数 |
+| `RAG_TOP_K` | 10 | 检索返回块数 |
+| `RAG_RERANK_TOP_K` | 10 | 重排后送入 LLM 的片段数 |
+| `RAG_DEFAULT_MAX_HOPS` | 2 | 图谱检索默认最大跳数 |
+| `RAG_LOG_LEVEL` | `INFO` | 日志级别 |
 | `NEO4J_URI` | `bolt://localhost:7687` | Neo4j 地址 |
 | `NEO4J_USERNAME` | `neo4j` | Neo4j 用户名 |
 | `NEO4J_PASSWORD` | `password` | Neo4j 密码 |
+| `NEO4J_DATABASE` | `neo4j` | Neo4j 数据库名 |
 | `CHROMA_PERSIST_DIRECTORY` | `.chroma` | Chroma 持久化目录 |
+| `CHROMA_PARENT_COLLECTION` | `parent_documents` | Chroma 父块集合名 |
+| `CHROMA_CHILD_COLLECTION` | `child_documents` | Chroma 子块集合名 |
 | `EMBEDDING_PROVIDER` | `hash` | Embedding 类型（当前仅 hash） |
+| `EMBEDDING_DIMENSION` | `384` | Hash Embedding 维度 |

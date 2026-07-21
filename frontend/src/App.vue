@@ -315,7 +315,7 @@ function renderMarkdown(text, sources = []) {
 }
 
 function formatInlineMarkdown(text, sourceLabels = {}) {
-  const normalized = keepOneSourceMarker(normalizeSourceMarkerPosition(text))
+  const normalized = moveSingleSourceMarkerToEnd(text)
 
   return normalized
     .replace(/\{\{source:(\d+)\}\}/g, (_, index) => {
@@ -405,18 +405,17 @@ function defaultMessages() {
   ]
 }
 
-function normalizeSourceMarkerPosition(text) {
-  return text.replace(/(\{\{source:\d+\}\})([。！？；.!?;])/g, '$2$1')
-}
-
-function keepOneSourceMarker(text) {
+function moveSingleSourceMarkerToEnd(text) {
   const markers = [...text.matchAll(/\{\{source:\d+\}\}/g)]
-  if (markers.length <= 1) return text
-  const keepIndex = markers[markers.length - 1].index
+  if (!markers.length) return text
 
-  return text.replace(/\{\{source:\d+\}\}/g, (marker, offset) => {
-    return offset === keepIndex ? marker : ''
-  })
+  const marker = markers[markers.length - 1][0]
+  const cleanText = text
+    .replace(/\s*\{\{source:\d+\}\}\s*/g, '')
+    .trimEnd()
+
+  if (!cleanText) return marker
+  return `${cleanText}${marker}`
 }
 
 function shortenSourceLabel(label) {
@@ -491,7 +490,7 @@ function visibleSources(message) {
 function extractVisibleSourceIndexes(text) {
   const indexes = new Set()
   for (const line of text.split('\n')) {
-    const normalized = keepOneSourceMarker(normalizeSourceMarkerPosition(line))
+    const normalized = moveSingleSourceMarkerToEnd(line)
     for (const match of normalized.matchAll(/\{\{source:(\d+)\}\}/g)) {
       indexes.add(match[1])
     }
