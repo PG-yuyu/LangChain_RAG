@@ -425,8 +425,11 @@ function shortenSourceLabel(label) {
   const extension = dotIndex > 0 ? filename.slice(dotIndex) : ''
   const name = dotIndex > 0 ? filename.slice(0, dotIndex) : filename
   const maxLength = extension ? 5 : 7
-  if (name.length <= maxLength) return label
-  const suffix = pageSuffix ? ` · ${pageSuffix}` : ''
+  // txt 和 docx 不显示页码
+  const lowExt = extension.toLowerCase()
+  const shouldShowPage = pageSuffix && lowExt !== '.txt' && lowExt !== '.docx'
+  const suffix = shouldShowPage ? ` · ${pageSuffix}` : ''
+  if (name.length <= maxLength) return shouldShowPage ? label : filename
   return `${name.slice(0, maxLength)}...${extension}${suffix}`
 }
 
@@ -520,7 +523,11 @@ function sourcePageOrder(source) {
 }
 
 function sourcePageText(source) {
-  return source.page_number ? `第 ${source.page_number} 页` : '未知页'
+  if (!source.page_number) return '未知页'
+  // txt 和 docx 文档本身没有固定分页，页码无意义
+  const filename = (source.filename || '').toLowerCase()
+  if (filename.endsWith('.txt') || filename.endsWith('.docx')) return ''
+  return `第 ${source.page_number} 页`
 }
 
 function cleanSourceContent(content = '') {
